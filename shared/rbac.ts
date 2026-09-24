@@ -11,17 +11,17 @@ export const ROLE_PERMISSIONS = {
   super_admin: [
     "dashboard.view", "medicines.create", "medicines.view", "medicines.edit", "medicines.archive",
     "inventory.add", "inventory.update", "inventory.adjust", "inventory.view", "transactions.view", "dispensing.view",
-    "reports.view", "reports.export", "employees.create", "employees.view", "employees.edit", "employees.activate",
-    "employees.archive", "employees.assign_roles", "activity_logs.view", "settings.manage", "machine.view", "profile.manage",
+    "reports.view", "reports.basic.view", "reports.export", "employees.create", "employees.view", "employees.edit", "employees.activate",
+    "employees.archive", "employees.assign_roles", "activity_logs.view", "settings.manage", "machine.view", "machine.operate", "profile.manage",
   ],
   admin: [
-    "dashboard.view", "medicines.create", "medicines.view", "medicines.edit",
+    "dashboard.view", "medicines.create", "medicines.view", "medicines.edit", "medicines.archive",
     "inventory.add", "inventory.update", "inventory.adjust", "inventory.view", "transactions.view", "dispensing.view",
-    "reports.view", "reports.export", "activity_logs.view", "machine.view", "profile.manage",
+    "reports.view", "reports.basic.view", "reports.export", "machine.view", "machine.operate", "profile.manage",
   ],
   staff: [
     "dashboard.view", "medicines.view", "inventory.view", "transactions.view", "dispensing.view",
-    "reports.view", "reports.export", "machine.view", "profile.manage",
+    "reports.basic.view", "machine.view", "machine.operate", "profile.manage",
   ],
 } as const satisfies Record<EmployeeRole, readonly string[]>;
 

@@ -13,7 +13,8 @@ return [
         'password' => getenv('DB_PASSWORD') ?: '',
     ],
     'firebase' => [
-        'project_id' => getenv('medidispense-e4883') ?: '',
+        'project_id' => getenv('FIREBASE_PROJECT_ID') ?: 'medidispense-e4883',
+        'initial_super_admin_email' => strtolower(trim(getenv('FIREBASE_INITIAL_SUPER_ADMIN_EMAIL') ?: 'beatrez.villanueva@cvsu.edu.ph')),
     ],
     'hardware' => [
         'api_key' => getenv('HARDWARE_API_KEY') ?: 'replace-this-hardware-key',

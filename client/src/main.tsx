@@ -5,6 +5,7 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
+import { firebaseAuth } from "@/firebase";
 import { startLogin } from "./const";
 import "./index.css";
 
@@ -42,7 +43,9 @@ const trpcClient = trpc.createClient({
     httpBatchLink({
       url: "/api/trpc",
       transformer: superjson,
-      headers() {
+      async headers() {
+        const firebaseToken = await firebaseAuth?.currentUser?.getIdToken().catch(() => null);
+        if (firebaseToken) return { Authorization: `Bearer ${firebaseToken}` };
         // Preview auto-login fallback: when the browser blocks iframe cookies
         // (Safari ITP / private browsing / WebView), the runtime mirrors the
         // session into sessionStorage so we can forward it as a Bearer token.

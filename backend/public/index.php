@@ -15,13 +15,18 @@ $apiPosition = strpos($path, '/api/');
 if ($apiPosition !== false) { $path = substr($path, $apiPosition); }
 $path = preg_replace('#^/index\.php#', '', $path) ?: '/';
 $path = rtrim($path, '/') ?: '/';
+$validProfileImageUrl = static function (?string $url): bool {
+    if ($url === null || preg_match('#^/manus-storage/profile-photos/[A-Za-z0-9._-]{1,180}$#', $url) === 1 || preg_match('#^https://(firebasestorage\.googleapis\.com|storage\.googleapis\.com)/#', $url) === 1) return true;
+    $parts = parse_url($url);
+    return is_array($parts) && in_array($parts['scheme'] ?? '', ['http','https'], true) && ($parts['host'] ?? '') === ($_SERVER['HTTP_HOST'] ?? '') && preg_match('#/manus-storage/profile-photos/[A-Za-z0-9._-]{1,180}$#', $parts['path'] ?? '') === 1;
+};
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origin === '' || in_array($origin, $config['cors_origins'], true)) {
     header('Access-Control-Allow-Origin: ' . ($origin ?: '*'));
     header('Vary: Origin');
 }
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Hardware-Key');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Hardware-Key, X-MediDispense-RBAC');
 header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Allow-Methods: GET, POST, PATCH, PUT, DELETE, OPTIONS');
 if ($method === 'OPTIONS') { http_response_code(204); exit; }
@@ -32,8 +37,11 @@ try {
     $claims = null;
     $profile = null;
 
-    $auth = function (array $roles = [], bool $provision = false) use (&$claims, &$profile, $verifier, $db): array {
-        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
+    $auth = function (array $roles = [], bool $provision = false) use (&$claims, &$profile, $verifier, $db, $config): array {
+        $header = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
+        if ($header === '' && function_exists('getallheaders')) {
+            foreach (getallheaders() as $name => $value) if (strcasecmp($name, 'Authorization') === 0) { $header = (string)$value; break; }
+        }
         if (!preg_match('/^Bearer\s+(.+)$/i', $header, $matches)) Response::error('Firebase ID token required.', 401);
         try { $claims = $verifier->verify(trim($matches[1])); } catch (Throwable $e) { Response::error('Invalid Firebase ID token.', 401); }
         $query = $db->prepare('SELECT u.*, r.code AS role_code FROM users u JOIN roles r ON r.id = u.role_id WHERE u.firebase_uid = ? LIMIT 1');
@@ -41,13 +49,32 @@ try {
         $profile = $query->fetch();
         if (!$profile && $provision) {
             $email = (string)($claims['email'] ?? ('firebase-' . $claims['sub'] . '@local.invalid'));
+            $byEmail = $db->prepare('SELECT id,is_active FROM users WHERE LOWER(email)=LOWER(?) LIMIT 1');
+            $byEmail->execute([$email]);
+            $existing = $byEmail->fetch();
+            if ($existing !== false && !(int)$existing['is_active']) Response::error('This employee profile is deactivated. Ask a Super Admin to activate the account.', 403);
+            if ($existing !== false) {
+                $db->prepare('UPDATE users SET firebase_uid=? WHERE id=?')->execute([$claims['sub'], $existing['id']]);
+                $query->execute([$claims['sub']]);
+                $profile = $query->fetch();
+            }
+        }
+        if (!$profile && $provision) {
+            $email = (string)($claims['email'] ?? ('firebase-' . $claims['sub'] . '@local.invalid'));
             $displayName = (string)($claims['name'] ?? $email);
-            $create = $db->prepare("INSERT INTO users (firebase_uid,email,display_name,role_id,email_verified_at) SELECT ?,?,?,id,? FROM roles WHERE code='staff' LIMIT 1");
-            $create->execute([$claims['sub'], $email, $displayName, !empty($claims['email_verified']) ? date('Y-m-d H:i:s') : null]);
+            $ownerEmail = (string)$config['firebase']['initial_super_admin_email'];
+            $hasOwner = (int)$db->query("SELECT COUNT(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE r.code='super_admin'")->fetchColumn() > 0;
+            $isInitialOwner = !$hasOwner && $ownerEmail !== '' && strtolower($email) === $ownerEmail;
+            if ($isInitialOwner && empty($claims['email_verified'])) Response::error('Verify the configured owner email before first-time Super Admin provisioning.', 403);
+            $roleCode = $isInitialOwner ? 'super_admin' : 'staff';
+            $employeeId = 'EMP-' . strtoupper(substr(hash('sha256', (string)$claims['sub']), 0, 12));
+            $create = $db->prepare('INSERT INTO users (firebase_uid,employee_id,email,display_name,role_id,email_verified_at) SELECT ?,?,?,?,id,? FROM roles WHERE code=? LIMIT 1');
+            $create->execute([$claims['sub'], $employeeId, $email, $displayName, !empty($claims['email_verified']) ? date('Y-m-d H:i:s') : null, $roleCode]);
             $query->execute([$claims['sub']]);
             $profile = $query->fetch();
         }
-        if (!$profile || !$profile['is_active']) Response::error('User profile is not active.', 403);
+        if (!$profile) Response::error('No employee profile is linked to this Firebase account.', 403);
+        if (!(int)$profile['is_active']) Response::error('This employee profile is deactivated. Ask a Super Admin to activate the account.', 403);
         if ($roles && !in_array($profile['role_code'], $roles, true)) Response::error('You are not authorized for this action.', 403);
         return $profile;
     };
@@ -82,19 +109,69 @@ try {
 
     if ($path === '/api/auth/profile' && $method === 'POST') {
         $user = $auth([], true);
-        $_SESSION['medidispense_user_id'] = (int)$user['id'];
-        $_SESSION['medidispense_role'] = $user['role_code'];
+        if (($_SERVER['HTTP_X_MEDIDISPENSE_RBAC'] ?? '') !== '1') {
+            $previousUserId = (int)($_SESSION['medidispense_user_id'] ?? 0);
+            $_SESSION['medidispense_user_id'] = (int)$user['id'];
+            $_SESSION['medidispense_role'] = $user['role_code'];
+            if ($previousUserId !== (int)$user['id']) { $db->prepare('UPDATE users SET last_login_at=NOW() WHERE id=?')->execute([$user['id']]); $log('user_logged_in','Employee authenticated successfully.',(int)$user['id'],'user'); }
+        }
         Response::json(['profile' => $user]);
     }
 
     if ($path === '/api/auth/logout' && $method === 'POST') {
+        $user=$auth(['super_admin','admin','staff']); $log('user_logged_out','Employee signed out.',(int)$user['id'],'user');
         $_SESSION = [];
         if (ini_get('session.use_cookies')) { $params = session_get_cookie_params(); setcookie(session_name(), '', time() - 42000, $params['path'], $params['domain'], (bool)$params['secure'], (bool)$params['httponly']); }
         session_destroy();
         Response::json(['success' => true]);
     }
 
-    if ($path === '/api/medicines' && $method === 'GET') Response::json($medicineQuery(($_GET['available'] ?? '0') === '1'));
+    if ($path === '/api/profile' && $method === 'GET') {
+        $user=$auth(['super_admin','admin','staff']);
+        Response::json(['id'=>(int)$user['id'],'employee_id'=>$user['employee_id'],'email'=>$user['email'],'display_name'=>$user['display_name'],'contact_number'=>$user['contact_number'],'profile_image_url'=>$user['profile_image_url'],'role_code'=>$user['role_code'],'is_active'=>(bool)$user['is_active'],'created_at'=>$user['created_at'],'last_login_at'=>$user['last_login_at']]);
+    }
+    if ($path === '/api/profile' && in_array($method, ['PATCH','PUT'], true)) {
+        $user=$auth(['super_admin','admin','staff']); $body=requestBody(); $fields=[]; $values=[];
+        if (array_key_exists('display_name',$body)) { $name=trim((string)$body['display_name']); if ($name==='' || !preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", $name)) Response::error('Name contains unsupported characters.',422); $fields[]='display_name=?'; $values[]=$name; }
+        if (array_key_exists('contact_number',$body)) { $contact=trim((string)$body['contact_number']); if ($contact!=='' && !preg_match('/^[0-9+() -]{1,40}$/', $contact)) Response::error('Contact number contains unsupported characters.',422); $fields[]='contact_number=?'; $values[]=$contact ?: null; }
+        if (!$fields) Response::error('No editable profile fields supplied.',422);
+        $values[]=$user['id']; $db->prepare('UPDATE users SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('profile_updated','Employee updated their own profile.',(int)$user['id'],'user'); Response::json(['success'=>true]);
+    }
+    if ($path === '/api/profile/photo' && $method === 'POST') {
+        $user=$auth(['super_admin','admin','staff']); $body=requestBody();
+        if (isset($body['profile_image_url'])) {
+            $url=(string)$body['profile_image_url'];
+            if (!$validProfileImageUrl($url)) Response::error('Invalid profile photo URL.',422);
+        } else {
+            $mime=(string)($body['contentType'] ?? ''); $encoded=(string)($body['dataBase64'] ?? '');
+            $extensions=['image/jpeg'=>'jpg','image/png'=>'png','image/webp'=>'webp'];
+            if (!isset($extensions[$mime])) Response::error('Choose a JPG, PNG, or WebP image.',422);
+            $image=base64_decode($encoded,true);
+            if ($image===false || $image==='' || strlen($image)>2*1024*1024) Response::error('Profile photos must be no larger than 2 MB.',422);
+            $imageInfo=@getimagesizefromstring($image);
+            if ($imageInfo===false || ($imageInfo['mime'] ?? '')!==$mime) Response::error('The selected file is not a valid image.',422);
+            $directory=__DIR__.'/manus-storage/profile-photos';
+            if (!is_dir($directory) && !mkdir($directory,0755,true) && !is_dir($directory)) Response::error('Could not create profile photo storage. Check write permissions for backend/public.',500);
+            $filename=bin2hex(random_bytes(18)).'.'.$extensions[$mime];
+            if (file_put_contents($directory.'/'.$filename,$image,LOCK_EX)===false) Response::error('Could not save the profile photo. Check write permissions for backend/public.',500);
+            $scheme=(!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS']!=='off') ? 'https' : 'http';
+            $publicPath=rtrim(dirname($_SERVER['SCRIPT_NAME'] ?? '/index.php'),'/').'/manus-storage/profile-photos/'.$filename;
+            $url=$scheme.'://'.($_SERVER['HTTP_HOST'] ?? 'localhost').$publicPath;
+        }
+        $db->prepare('UPDATE users SET profile_image_url=? WHERE id=?')->execute([$url,$user['id']]); $log('profile_photo_updated','Employee updated their profile photo.',(int)$user['id'],'user'); Response::json(['success'=>true,'profile_image_url'=>$url]);
+    }
+    if ($path === '/api/profile/photo' && $method === 'DELETE') {
+        $user=$auth(['super_admin','admin','staff']);
+        $current=$db->prepare('SELECT profile_image_url FROM users WHERE id=?'); $current->execute([$user['id']]); $oldUrl=$current->fetchColumn();
+        $db->prepare('UPDATE users SET profile_image_url=NULL WHERE id=?')->execute([$user['id']]);
+        if (is_string($oldUrl)) { $oldPath=parse_url($oldUrl,PHP_URL_PATH); if (is_string($oldPath) && preg_match('#/manus-storage/profile-photos/([A-Za-z0-9._-]{1,180})$#',$oldPath,$matched)) { $file=__DIR__.'/manus-storage/profile-photos/'.$matched[1]; if (is_file($file)) @unlink($file); } }
+        $log('profile_photo_removed','Employee removed their profile photo.',(int)$user['id'],'user'); Response::json(['success'=>true]);
+    }
+
+    if ($path === '/api/medicines' && $method === 'GET') {
+        if (($_GET['available'] ?? '0') !== '1') $auth(['super_admin','admin','staff']);
+        Response::json($medicineQuery(($_GET['available'] ?? '0') === '1'));
+    }
     if ($path === '/api/dashboard/summary' && $method === 'GET') {
         $auth(['super_admin','admin','staff']);
         $rows = $medicineQuery(false); $today = date('Y-m-d');
@@ -107,27 +184,45 @@ try {
     }
     if ($path === '/api/users' && $method === 'GET') {
         $auth(['super_admin']);
-        $rows = $db->query("SELECT u.id,u.firebase_uid,u.email,u.display_name,u.contact_number,u.is_active,u.email_verified_at,u.last_login_at,u.created_at,u.updated_at,r.code AS role_code,r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.created_at DESC")->fetchAll();
+        $rows = $db->query("SELECT u.id,u.employee_id,u.firebase_uid,u.email,u.display_name,u.contact_number,u.profile_image_url,u.is_active,u.archived_at,u.email_verified_at,u.last_login_at,u.created_at,u.updated_at,r.code AS role_code,r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.created_at DESC")->fetchAll();
         Response::json($rows);
     }
     if ($path === '/api/users' && $method === 'POST') {
         $actor = $auth(['super_admin']); $body = requestBody();
-        foreach (['firebase_uid','email','display_name','role_code'] as $field) if (!array_key_exists($field, $body)) Response::error("Missing field: {$field}");
+        foreach (['firebase_uid','email','display_name','employee_id','role_code'] as $field) if (!array_key_exists($field, $body)) Response::error("Missing field: {$field}");
+        $employeeId=trim((string)$body['employee_id']); if (!preg_match('/^EMP-[A-Za-z0-9-]{1,19}$/',$employeeId)) Response::error('Employee ID must start with EMP- and be unique.',422);
+        if (!preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", trim((string)$body['display_name']))) Response::error('Name contains unsupported characters.',422);
+        if (!empty($body['contact_number']) && !preg_match('/^[0-9+() -]{1,40}$/', trim((string)$body['contact_number']))) Response::error('Contact number contains unsupported characters.',422);
         if (!in_array($body['role_code'], ['super_admin','admin','staff'], true)) Response::error('Invalid employee role.', 422);
         $role = $db->prepare('SELECT id FROM roles WHERE code=?'); $role->execute([$body['role_code']]); $roleId = $role->fetchColumn();
         if (!$roleId) Response::error('Role not found.', 422);
-        $stmt = $db->prepare('INSERT INTO users (firebase_uid,email,display_name,contact_number,role_id,is_active,email_verified_at) VALUES (?,?,?,?,?,1,?)');
-        $stmt->execute([$body['firebase_uid'],$body['email'],$body['display_name'],$body['contact_number'] ?? null,$roleId,!empty($body['email_verified']) ? date('Y-m-d H:i:s') : null]);
+        $imageUrl=$body['profile_image_url'] ?? null;
+        if (!$validProfileImageUrl($imageUrl)) Response::error('Invalid profile photo URL.',422);
+        $stmt = $db->prepare('INSERT INTO users (firebase_uid,employee_id,email,display_name,contact_number,profile_image_url,role_id,is_active,email_verified_at) VALUES (?,?,?,?,?,?,?,1,?)');
+        try { $stmt->execute([$body['firebase_uid'],$employeeId,$body['email'],$body['display_name'],$body['contact_number'] ?? null,$imageUrl,$roleId,!empty($body['email_verified']) ? date('Y-m-d H:i:s') : null]); } catch (PDOException $e) { if ((string)$e->getCode()==='23000') Response::error('Employee ID or email already exists.',409); throw $e; }
         $id = (int)$db->lastInsertId(); $log('employee_created','Employee account profile created.',(int)$actor['id'],'user',['employee_id'=>$id,'role'=>$body['role_code']]); Response::json(['id'=>$id],201);
     }
     if (preg_match('#^/api/users/(\d+)$#', $path, $matches) && in_array($method, ['PATCH','PUT'], true)) {
         $actor = $auth(['super_admin']); $body = requestBody(); $userId=(int)$matches[1];
         if ($userId === (int)$actor['id'] && array_key_exists('is_active',$body) && !$body['is_active']) Response::error('You cannot deactivate your own account.',422);
+        $target=$db->prepare('SELECT r.code AS role_code FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?'); $target->execute([$userId]); $targetRole=$target->fetchColumn();
+        if ($targetRole===false) Response::error('Employee account not found.',404);
+        $losesLastSuperAdmin=$targetRole==='super_admin' && ((array_key_exists('is_active',$body) && !$body['is_active']) || (isset($body['role_code']) && $body['role_code']!=='super_admin'));
+        if ($losesLastSuperAdmin && (int)$db->query("SELECT COUNT(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE r.code='super_admin' AND u.is_active=1")->fetchColumn() <= 1) Response::error('At least one active Super Admin account is required.',422);
         $fields=[]; $values=[];
-        foreach (['display_name','contact_number'] as $field) if (array_key_exists($field,$body)) { $fields[]="$field=?"; $values[]=$body[$field]; }
+        foreach (['display_name','contact_number'] as $field) if (array_key_exists($field,$body)) { $value=trim((string)$body[$field]); if ($field==='display_name' && !preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", $value)) Response::error('Name contains unsupported characters.',422); if ($field==='contact_number' && $value!=='' && !preg_match('/^[0-9+() -]{1,40}$/', $value)) Response::error('Contact number contains unsupported characters.',422); $fields[]="$field=?"; $values[]=$value ?: null; }
+        if (array_key_exists('profile_image_url',$body)) { $url=$body['profile_image_url']; if (!$validProfileImageUrl($url)) Response::error('Invalid profile photo URL.',422); $fields[]='profile_image_url=?'; $values[]=$url; }
         if (array_key_exists('is_active',$body)) { $fields[]='is_active=?'; $values[]=$body['is_active'] ? 1 : 0; }
         if (array_key_exists('role_code',$body)) { if (!in_array($body['role_code'],['super_admin','admin','staff'],true)) Response::error('Invalid employee role.',422); $role=$db->prepare('SELECT id FROM roles WHERE code=?'); $role->execute([$body['role_code']]); $fields[]='role_id=?'; $values[]=$role->fetchColumn(); }
         if (!$fields) Response::error('No editable fields supplied.',422); $values[]=$userId; $db->prepare('UPDATE users SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('employee_updated','Employee account or role updated.',(int)$actor['id'],'user',['employee_id'=>$userId]); Response::json(['success'=>true]);
+    }
+    if (preg_match('#^/api/users/(\d+)$#', $path, $matches) && $method === 'DELETE') {
+        $actor=$auth(['super_admin']); $userId=(int)$matches[1];
+        if ($userId === (int)$actor['id']) Response::error('You cannot archive your own account.',422);
+        $target=$db->prepare('SELECT r.code AS role_code FROM users u JOIN roles r ON r.id=u.role_id WHERE u.id=?'); $target->execute([$userId]); $targetRole=$target->fetchColumn();
+        if ($targetRole===false) Response::error('Employee account not found.',404);
+        if ($targetRole==='super_admin' && (int)$db->query("SELECT COUNT(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE r.code='super_admin' AND u.is_active=1")->fetchColumn() <= 1) Response::error('At least one active Super Admin account is required.',422);
+        $db->prepare('UPDATE users SET is_active=0, archived_at=COALESCE(archived_at,NOW()) WHERE id=?')->execute([$userId]); $log('employee_archived','Employee account archived.',(int)$actor['id'],'user',['employee_id'=>$userId]); Response::json(['success'=>true]);
     }
     if ($path === '/api/settings' && $method === 'GET') { $auth(['super_admin']); Response::json($db->query('SELECT setting_key,setting_value,updated_by,updated_at FROM system_settings ORDER BY setting_key')->fetchAll()); }
     if ($path === '/api/settings' && in_array($method, ['POST','PATCH','PUT'], true)) {
@@ -180,10 +275,16 @@ try {
 
     if ($path === '/api/machine/heartbeat' && $method === 'POST') { $hardwareAuth(); $body=requestBody(); $machineId=(int)($body['machine_id'] ?? 1); $stmt=$db->prepare("UPDATE machine_status SET connection_status='online',esp32_status=?,motor_status=?,sensor_status=?,coin_acceptor_status=?,last_communication_at=NOW(),last_payload=? WHERE machine_id=?"); $stmt->execute([$body['esp32_status']??'Ready',$body['motor_status']??'Idle',$body['sensor_status']??'Monitoring',$body['coin_acceptor_status']??'Ready',json_encode($body),$machineId]); Response::json(['machine_id'=>$machineId,'online'=>true,'last_communication_at'=>gmdate('c')]); }
     if ($path === '/api/machine/status' && $method === 'GET') { $auth(['super_admin','admin','staff']); $machine=$db->query('SELECT m.*,ms.* FROM machines m LEFT JOIN machine_status ms ON ms.machine_id=m.id ORDER BY m.id LIMIT 1')->fetch(); $slots=$db->query('SELECT s.*,m.name AS medicine_name,COALESCE(i.quantity,0) AS quantity FROM machine_slots s LEFT JOIN medicines m ON m.id=s.medicine_id LEFT JOIN inventory i ON i.medicine_id=s.medicine_id ORDER BY s.slot_number')->fetchAll(); Response::json(['machine'=>$machine,'slots'=>$slots]); }
-    if ($path === '/api/transactions' && $method === 'GET') { $auth(['super_admin','admin','staff']); $rows=$db->query('SELECT t.*,GROUP_CONCAT(ti.medicine_name_snapshot SEPARATOR ", ") AS medicines FROM transactions t LEFT JOIN transaction_items ti ON ti.transaction_id=t.id GROUP BY t.id ORDER BY t.created_at DESC LIMIT 250')->fetchAll(); Response::json($rows); }
+    if ($path === '/api/transactions' && $method === 'GET') { $actor=$auth(['super_admin','admin','staff']); $log('transactions_viewed','Employee viewed transaction records.',(int)$actor['id'],'user'); $rows=$db->query('SELECT t.*,GROUP_CONCAT(ti.medicine_name_snapshot SEPARATOR ", ") AS medicines FROM transactions t LEFT JOIN transaction_items ti ON ti.transaction_id=t.id GROUP BY t.id ORDER BY t.created_at DESC LIMIT 250')->fetchAll(); Response::json($rows); }
     if ($path === '/api/notifications' && $method === 'GET') { $auth(['super_admin','admin','staff']); Response::json($db->query('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 100')->fetchAll()); }
-    if ($path === '/api/logs' && $method === 'GET') { $auth(['super_admin','admin']); Response::json($db->query('SELECT al.*,u.display_name FROM activity_logs al LEFT JOIN users u ON u.id=al.actor_user_id ORDER BY al.created_at DESC LIMIT 250')->fetchAll()); }
-    if ($path === '/api/reports/inventory.csv' && $method === 'GET') { $auth(['super_admin','admin','staff']); $rows=$medicineQuery(false); $stream=fopen('php://temp','r+'); fputcsv($stream,['Medicine','Category','Quantity','Price','Expiry','Status','Slot']); foreach($rows as $row) fputcsv($stream,[$row['name'],$row['category'],$row['stockQuantity'],number_format($row['price'],2),$row['expiryDate'],$row['status'],$row['slotNumber'] ?? 'Unassigned']); rewind($stream); Response::csv('medidispense-inventory-report.csv',stream_get_contents($stream)); }
+    if ($path === '/api/logs' && $method === 'GET') { $auth(['super_admin']); Response::json($db->query('SELECT al.*,u.display_name,u.email FROM activity_logs al LEFT JOIN users u ON u.id=al.actor_user_id ORDER BY al.created_at DESC LIMIT 500')->fetchAll()); }
+    if ($path === '/api/reports/basic' && $method === 'GET') {
+        $actor=$auth(['super_admin','admin','staff']); $rows=$medicineQuery(false); $today=date('Y-m-d');
+        $daily=$db->prepare('SELECT t.id,t.transaction_code,t.total_amount,t.payment_status,t.dispensing_status,t.created_at,GROUP_CONCAT(ti.medicine_name_snapshot SEPARATOR ", ") AS medicines FROM transactions t LEFT JOIN transaction_items ti ON ti.transaction_id=t.id WHERE DATE(t.created_at)=? GROUP BY t.id ORDER BY t.created_at DESC LIMIT 100'); $daily->execute([$today]);
+        $log('basic_operations_report_viewed','Employee viewed the basic operations report.',(int)$actor['id'],'user');
+        Response::json(['date'=>$today,'inventory'=>['medicine_count'=>count($rows),'unit_count'=>array_sum(array_column($rows,'stockQuantity'))],'low_stock'=>array_values(array_filter($rows,fn($row)=>$row['status']==='low_stock')),'out_of_stock'=>array_values(array_filter($rows,fn($row)=>$row['status']==='out_of_stock')),'daily_transactions'=>$daily->fetchAll()]);
+    }
+    if ($path === '/api/reports/inventory.csv' && $method === 'GET') { $auth(['super_admin','admin']); $rows=$medicineQuery(false); $stream=fopen('php://temp','r+'); fputcsv($stream,['Medicine','Category','Quantity','Price','Expiry','Status','Slot']); foreach($rows as $row) fputcsv($stream,[$row['name'],$row['category'],$row['stockQuantity'],number_format($row['price'],2),$row['expiryDate'],$row['status'],$row['slotNumber'] ?? 'Unassigned']); rewind($stream); Response::csv('medidispense-inventory-report.csv',stream_get_contents($stream)); }
 
     Response::error('Route not found.', 404);
 } catch (Throwable $e) {

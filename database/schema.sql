@@ -9,13 +9,14 @@ DROP TABLE IF EXISTS notifications, activity_logs, stock_movements, dispensing_l
 
 CREATE TABLE roles (
   id TINYINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  code VARCHAR(32) NOT NULL UNIQUE,
+  code ENUM('super_admin','admin','staff') NOT NULL UNIQUE,
   name VARCHAR(64) NOT NULL,
   description VARCHAR(255) NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  employee_id VARCHAR(24) NOT NULL UNIQUE,
   firebase_uid VARCHAR(128) NOT NULL UNIQUE,
   email VARCHAR(320) NOT NULL UNIQUE,
   display_name VARCHAR(160) NOT NULL,
@@ -23,6 +24,7 @@ CREATE TABLE users (
   contact_number VARCHAR(40) NULL,
   role_id TINYINT UNSIGNED NOT NULL,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
+  archived_at DATETIME NULL,
   email_verified_at DATETIME NULL,
   last_login_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -248,8 +250,8 @@ CREATE TABLE system_settings (
 
 INSERT INTO roles (code, name, description) VALUES
  ('super_admin','Super Admin','Full system access and account management'),
- ('admin','Admin','Medicine, inventory, transactions, reports, and logs'),
- ('staff','Staff/User','Read-only and limited operational access');
+ ('admin','Admin','Medicine and inventory management, reports, and operations monitoring'),
+ ('staff','Staff – Monitoring/Operations','Read-only monitoring and operations access');
 INSERT INTO medicine_categories (name) VALUES ('Pain Relief'),('Fever'),('Cold and Flu'),('Allergy'),('Vitamins'),('Other OTC Medicines');
 INSERT INTO machines (machine_code, name, location, firmware_version) VALUES ('MD-001','MediDispense-01','Capstone laboratory','0.9.0');
 INSERT INTO machine_status (machine_id, connection_status, esp32_status, motor_status, sensor_status, coin_acceptor_status, last_communication_at) VALUES (1,'online','Ready','Idle','Monitoring','Ready',CURRENT_TIMESTAMP);

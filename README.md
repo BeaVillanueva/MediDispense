@@ -42,6 +42,7 @@ The preview data service is intentionally in-memory so the UI can be exercised w
    | --- | --- |
    | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | MySQL connection |
    | `FIREBASE_PROJECT_ID` | Firebase project used for ID-token audience/issuer validation |
+   | `FIREBASE_INITIAL_SUPER_ADMIN_EMAIL` | Verified Firebase email permitted to claim the initial owner role during first-time provisioning |
    | `HARDWARE_API_KEY` | Secret sent by ESP32 in `X-Hardware-Key` |
    | `CORS_ORIGINS` | Allowed React origins |
 
@@ -61,7 +62,23 @@ Create a Firebase Web application and enable email/password authentication, emai
 Authorization: Bearer <firebase-id-token>
 ```
 
-The API validates the token signature against Google Secure Token certificates, then checks `aud`, `iss`, `sub`, `iat`, and `exp`. The MySQL `users` table stores `firebase_uid`, profile fields, and the server-controlled role. There is no PHP password store. Only `super_admin` and `admin` may mutate catalog or stock data, and role changes should be implemented by a super-admin-only management screen against the `users.role_id` field.
+The API validates the token signature against Google Secure Token certificates, then checks `aud`, `iss`, `sub`, `iat`, and `exp`. The MySQL `users` table stores `firebase_uid`, profile fields, and the server-controlled role. There is no PHP password store. Roles are exactly `super_admin`, `admin`, and `staff`; permissions are enforced by the PHP API on every protected request.
+
+Set `FIREBASE_INITIAL_SUPER_ADMIN_EMAIL` to the verified owner email before first sign-in. The first matching Firebase account is provisioned as `super_admin`; other new registrations receive `staff`. On an existing database, apply `database/migrations/2026_09_24_employee_rbac.sql` to normalize employee roles, then apply `database/migrations/2026_09_25_employee_profile.sql` to add permanent generated Employee IDs. The existing `users.profile_image_url` field is reused for profile photos.
+
+The Node/tRPC server must also have `MEDIDISPENSE_PHP_API_URL` set to the PHP API base URL (the same value as `VITE_API_BASE_URL`). It verifies each Firebase bearer token through the PHP profile endpoint before serving employee dashboard procedures. Production dashboard procedures fail closed if this bridge is not configured.
+
+## Employee role boundaries
+
+| Capability | SUPER ADMIN | ADMIN | STAFF |
+| --- | --- | --- | --- |
+| Dashboard, medicine/stock, transactions, machine status | Full access | View and manage medicines/stock; view operations | Monitoring and read-only operations |
+| Reports and inventory CSV | Yes | Yes | No |
+| Employee roles, activity logs, system settings | Yes | No | No |
+| Archive or change medicine records | Yes | Yes | No |
+| Password reset | May send a Firebase reset email | Self-service only | Self-service only |
+
+Employee identity/password creation remains in Firebase Authentication; the employee screen links the Firebase UID to the server-side role profile. Passwords are never stored in MediDispense.
 
 ## API structure
 
