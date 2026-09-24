@@ -1,0 +1,12 @@
+{
+  "name": "medidispense/php-api",
+  "description": "MediDispense PHP REST API for XAMPP/MySQL and ESP32 hardware integration",
+  "type": "project",
+  "require": {
+    "php": ">=8.1",
+    "firebase/php-jwt": "^6.10"
+  },
+  "autoload": {
+    "classmap": ["src/"]
+  }
+}
