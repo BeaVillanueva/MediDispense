@@ -105,41 +105,6 @@ try {
         $summary['salesTrend'] = [['label'=>'Mon','value'=>820],['label'=>'Tue','value'=>1040],['label'=>'Wed','value'=>760],['label'=>'Thu','value'=>1320],['label'=>'Fri','value'=>1180],['label'=>'Sat','value'=>1640],['label'=>'Sun','value'=>980]];
         Response::json($summary);
     }
-    if ($path === '/api/users' && $method === 'GET') {
-        $auth(['super_admin']);
-        $rows = $db->query("SELECT u.id,u.firebase_uid,u.email,u.display_name,u.contact_number,u.is_active,u.email_verified_at,u.last_login_at,u.created_at,u.updated_at,r.code AS role_code,r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.created_at DESC")->fetchAll();
-        Response::json($rows);
-    }
-    if ($path === '/api/users' && $method === 'POST') {
-        $actor = $auth(['super_admin']); $body = requestBody();
-        foreach (['firebase_uid','email','display_name','role_code'] as $field) if (!array_key_exists($field, $body)) Response::error("Missing field: {$field}");
-        if (!in_array($body['role_code'], ['super_admin','admin','staff'], true)) Response::error('Invalid employee role.', 422);
-        $role = $db->prepare('SELECT id FROM roles WHERE code=?'); $role->execute([$body['role_code']]); $roleId = $role->fetchColumn();
-        if (!$roleId) Response::error('Role not found.', 422);
-        $stmt = $db->prepare('INSERT INTO users (firebase_uid,email,display_name,contact_number,role_id,is_active,email_verified_at) VALUES (?,?,?,?,?,1,?)');
-        $stmt->execute([$body['firebase_uid'],$body['email'],$body['display_name'],$body['contact_number'] ?? null,$roleId,!empty($body['email_verified']) ? date('Y-m-d H:i:s') : null]);
-        $id = (int)$db->lastInsertId(); $log('employee_created','Employee account profile created.',(int)$actor['id'],'user',['employee_id'=>$id,'role'=>$body['role_code']]); Response::json(['id'=>$id],201);
-    }
-    if (preg_match('#^/api/users/(\d+)$#', $path, $matches) && in_array($method, ['PATCH','PUT'], true)) {
-        $actor = $auth(['super_admin']); $body = requestBody(); $userId=(int)$matches[1];
-        if ($userId === (int)$actor['id'] && array_key_exists('is_active',$body) && !$body['is_active']) Response::error('You cannot deactivate your own account.',422);
-        $fields=[]; $values=[];
-        foreach (['display_name','contact_number'] as $field) if (array_key_exists($field,$body)) { $fields[]="$field=?"; $values[]=$body[$field]; }
-        if (array_key_exists('is_active',$body)) { $fields[]='is_active=?'; $values[]=$body['is_active'] ? 1 : 0; }
-        if (array_key_exists('role_code',$body)) { if (!in_array($body['role_code'],['super_admin','admin','staff'],true)) Response::error('Invalid employee role.',422); $role=$db->prepare('SELECT id FROM roles WHERE code=?'); $role->execute([$body['role_code']]); $fields[]='role_id=?'; $values[]=$role->fetchColumn(); }
-        if (!$fields) Response::error('No editable fields supplied.',422); $values[]=$userId; $db->prepare('UPDATE users SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('employee_updated','Employee account or role updated.',(int)$actor['id'],'user',['employee_id'=>$userId]); Response::json(['success'=>true]);
-    }
-    if ($path === '/api/settings' && $method === 'GET') { $auth(['super_admin']); Response::json($db->query('SELECT setting_key,setting_value,updated_by,updated_at FROM system_settings ORDER BY setting_key')->fetchAll()); }
-    if ($path === '/api/settings' && in_array($method, ['POST','PATCH','PUT'], true)) {
-        $actor = $auth(['super_admin']); $body=requestBody(); if (!isset($body['setting_key'],$body['setting_value'])) Response::error('setting_key and setting_value are required.');
-        $db->prepare('INSERT INTO system_settings (setting_key,setting_value,updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_by=VALUES(updated_by)')->execute([$body['setting_key'],(string)$body['setting_value'],$actor['id']]); $log('system_setting_updated','System setting updated.',(int)$actor['id'],'user',['setting_key'=>$body['setting_key']]); Response::json(['success'=>true]);
-    }
-    if (preg_match('#^/api/medicines/(\d+)$#', $path, $matches) && in_array($method, ['PATCH','PUT','DELETE'], true)) {
-        $actor = $auth(['super_admin','admin']); $medicineId=(int)$matches[1];
-        if ($method === 'DELETE') { $db->prepare('UPDATE medicines SET is_enabled=0 WHERE id=?')->execute([$medicineId]); $log('medicine_archived','Medicine archived from vending catalog.',(int)$actor['id'],'user',['medicine_id'=>$medicineId]); Response::json(['success'=>true]); }
-        $body=requestBody(); $allowed=['name'=>'name','generic_name'=>'generic_name','description'=>'description','dosage_information'=>'dosage_information','usage_instructions'=>'usage_instructions','unit_price'=>'unit_price','expiry_date'=>'expiry_date','minimum_stock_level'=>'minimum_stock_level','is_enabled'=>'is_enabled','image_url'=>'image_url']; $fields=[];$values=[]; foreach($allowed as $key=>$column) if(array_key_exists($key,$body)){ $fields[]="$column=?";$values[]=$body[$key]; } if(!$fields) Response::error('No editable medicine fields supplied.',422); $values[]=$medicineId; $db->prepare('UPDATE medicines SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('medicine_updated','Medicine record updated.',(int)$actor['id'],'user',['medicine_id'=>$medicineId]); Response::json(['success'=>true]);
-    }
-
     if ($path === '/api/medicines' && $method === 'POST') {
         $actor = $auth(['super_admin','admin']); $body = requestBody();
         foreach (['name','generic_name','category_id','description','dosage_information','usage_instructions','unit_price','expiry_date','minimum_stock_level','stock_quantity'] as $field) if (!array_key_exists($field, $body)) Response::error("Missing field: {$field}");
