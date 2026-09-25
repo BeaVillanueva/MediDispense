@@ -5,6 +5,7 @@ import { ROLE_LABELS } from "@shared/rbac";
 import EmployeeAvatar from "@/components/EmployeeAvatar";
 import { encodeProfilePhoto } from "@/lib/profilePhoto";
 import { toast } from "sonner";
+import { acceptContactInput, acceptNameInput, validateAccountFields } from "@/lib/accountValidation";
 
 export default function ProfilePanel() {
   const auth = useFirebaseAuth();
@@ -25,9 +26,8 @@ export default function ProfilePanel() {
     return payload?.data;
   };
   const saveProfile = async () => {
-    const displayName = name.trim();
-    if (!displayName) throw new Error("Employee name is required.");
-    await profileRequest("/api/profile", "PATCH", { display_name: displayName, contact_number: contact.trim() });
+    validateAccountFields(name, contact);
+    await profileRequest("/api/profile", "PATCH", { display_name: name, contact_number: contact });
     await auth.refreshProfile();
   };
   const upload = async () => {
@@ -43,5 +43,5 @@ export default function ProfilePanel() {
     setPhotoPreview(null);
     await auth.refreshProfile();
   };
-  return <div className="page-stack"><section className="panel profile-panel"><div className="panel-head"><div><div className="panel-kicker">MY ACCOUNT</div><h2>Profile settings</h2></div></div><div className="profile-photo-row"><EmployeeAvatar name={name || "Employee"} imageUrl={photoPreview} className="avatar profile-avatar" /><div className="profile-photo-controls"><div>Profile picture<label className="file-picker"><span>{photo?.name ?? "No file selected"}</span><b>Choose file</b><input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setPhoto(e.target.files?.[0] ?? null)} /></label></div><small>JPG, PNG, or WebP Â· Maximum 2 MB</small><div className="toolbar-actions"><button className="secondary-button" disabled={busy || !photo} onClick={() => void submit(upload, "Profile photo updated")}>Upload photo</button><button className="panel-link" disabled={busy || (!auth.profile?.profile_image_url && !photoPreview)} onClick={() => void submit(removePhoto, "Profile photo removed")}>Remove photo</button></div></div></div><div className="form-grid profile-fields"><label>Employee name<input maxLength={160} pattern="[A-Za-z0-9 .,'-]+" value={name} onChange={e => setName(e.target.value.slice(0, 160))} /></label><label>Employee ID<input value={auth.profile?.employee_id ?? ""} disabled /></label><label>Email<input value={auth.profile?.email ?? auth.user?.email ?? ""} disabled /></label><label>Role<input value={auth.profile?.role_code ? ROLE_LABELS[auth.profile.role_code] : "Staff"} disabled /></label><label>Contact number<input maxLength={40} pattern="[0-9+() -]*" value={contact} onChange={e => setContact(e.target.value.slice(0, 40))} /></label></div><div className="modal-actions"><button className="primary-button" disabled={busy || !name.trim()} onClick={() => void submit(saveProfile, "Profile updated")}>Save profile</button></div></section></div>;
+  return <div className="page-stack"><section className="panel profile-panel"><div className="panel-head"><div><div className="panel-kicker">MY ACCOUNT</div><h2>Profile settings</h2></div></div><div className="profile-photo-row"><EmployeeAvatar name={name || "Employee"} imageUrl={photoPreview} className="avatar profile-avatar" /><div className="profile-photo-controls"><div>Profile picture<label className="file-picker"><span>{photo?.name ?? "No file selected"}</span><b>Choose file</b><input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => setPhoto(e.target.files?.[0] ?? null)} /></label></div><small>JPG, PNG, or WebP Â· Maximum 2 MB</small><div className="toolbar-actions"><button className="secondary-button" disabled={busy || !photo} onClick={() => void submit(upload, "Profile photo updated")}>Upload photo</button><button className="panel-link" disabled={busy || (!auth.profile?.profile_image_url && !photoPreview)} onClick={() => void submit(removePhoto, "Profile photo removed")}>Remove photo</button></div></div></div><div className="form-grid profile-fields"><label>Employee name<input maxLength={160} pattern="[A-Za-z ]+" value={name} onChange={e => { const value = acceptNameInput(e.target.value); if (value !== null) setName(value.slice(0, 160)); }} /></label><label>Employee ID<input value={auth.profile?.employee_id ?? ""} disabled /></label><label>Email<input value={auth.profile?.email ?? auth.user?.email ?? ""} disabled /></label><label>Role<input value={auth.profile?.role_code ? ROLE_LABELS[auth.profile.role_code] : "Staff"} disabled /></label><label>Contact number<input maxLength={11} pattern="[0-9]{11}" value={contact} onChange={e => { const value = acceptContactInput(e.target.value); if (value !== null) setContact(value); }} /></label></div><div className="modal-actions"><button className="primary-button" disabled={busy || !name.trim()} onClick={() => void submit(saveProfile, "Profile updated")}>Save profile</button></div></section></div>;
 }
