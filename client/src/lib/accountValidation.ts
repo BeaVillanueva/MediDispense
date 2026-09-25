@@ -1,0 +1,19 @@
+export const NAME_PARTIAL_PATTERN = /^[A-Za-z]*(?: [A-Za-z]*)* ?$/;
+export const NAME_PATTERN = /^[A-Za-z]+(?: [A-Za-z]+)*$/;
+export const CONTACT_PARTIAL_PATTERN = /^\d{0,11}$/;
+export const CONTACT_PATTERN = /^\d{11}$/;
+export const EMPLOYEE_ID_PARTIAL_PATTERN = /^(?:E(?:M(?:P(?:-[A-Z0-9]{0,19})?)?)?)?$/;
+export const EMPLOYEE_ID_PATTERN = /^EMP-[A-Z0-9]{1,19}$/;
+export const RESTRICTED_TEXT_PATTERN = /['"`;\\/<>]/;
+export const EMAIL_PARTIAL_PATTERN = /^(?:[A-Za-z0-9.!#$%&'*+^_`{|}~-]+(?:@[A-Za-z0-9-]*(?:\.[A-Za-z0-9-]*)*)?)?$/;
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const hasRestrictedCharacters = (value: string) => RESTRICTED_TEXT_PATTERN.test(value);
+export const acceptNameInput = (value: string) => NAME_PARTIAL_PATTERN.test(value) ? value : null;
+export const acceptContactInput = (value: string) => CONTACT_PARTIAL_PATTERN.test(value) ? value : null;
+export const acceptEmployeeIdInput = (value: string) => { const normalized = value.toUpperCase(); return EMPLOYEE_ID_PARTIAL_PATTERN.test(normalized) ? normalized : null; };
+export const acceptEmailInput = (value: string) => !/\s/.test(value) && !hasRestrictedCharacters(value) && EMAIL_PARTIAL_PATTERN.test(value) ? value : null;
+export const validateAccountFields = (name: string, contact: string, employeeId?: string) => {
+  if (!NAME_PATTERN.test(name)) throw new Error("Name can only contain letters and single spaces.");
+  if (contact !== "" && !CONTACT_PATTERN.test(contact)) throw new Error("Contact number must contain exactly 11 digits.");
+  if (employeeId !== undefined && !EMPLOYEE_ID_PATTERN.test(employeeId.trim().toUpperCase())) throw new Error("Employee ID contains invalid characters.");
+};

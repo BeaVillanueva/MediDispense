@@ -132,8 +132,8 @@ try {
     }
     if ($path === '/api/profile' && in_array($method, ['PATCH','PUT'], true)) {
         $user=$auth(['super_admin','admin','staff']); $body=requestBody(); $fields=[]; $values=[];
-        if (array_key_exists('display_name',$body)) { $name=trim((string)$body['display_name']); if ($name==='' || !preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", $name)) Response::error('Name contains unsupported characters.',422); $fields[]='display_name=?'; $values[]=$name; }
-        if (array_key_exists('contact_number',$body)) { $contact=trim((string)$body['contact_number']); if ($contact!=='' && !preg_match('/^[0-9+() -]{1,40}$/', $contact)) Response::error('Contact number contains unsupported characters.',422); $fields[]='contact_number=?'; $values[]=$contact ?: null; }
+        if (array_key_exists('display_name',$body)) { $name=trim((string)$body['display_name']); if ($name==='' || !preg_match("/^[\\p{L}]+(?: [\\p{L}]+)*$/u", $name)) Response::error('Name contains unsupported characters.',422); $fields[]='display_name=?'; $values[]=$name; }
+        if (array_key_exists('contact_number',$body)) { $contact=trim((string)$body['contact_number']); if ($contact!=='' && !preg_match('/^\\d{11}$/', $contact)) Response::error('Contact number contains unsupported characters.',422); $fields[]='contact_number=?'; $values[]=$contact ?: null; }
         if (!$fields) Response::error('No editable profile fields supplied.',422);
         $values[]=$user['id']; $db->prepare('UPDATE users SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('profile_updated','Employee updated their own profile.',(int)$user['id'],'user'); Response::json(['success'=>true]);
     }
@@ -190,9 +190,9 @@ try {
     if ($path === '/api/users' && $method === 'POST') {
         $actor = $auth(['super_admin']); $body = requestBody();
         foreach (['firebase_uid','email','display_name','employee_id','role_code'] as $field) if (!array_key_exists($field, $body)) Response::error("Missing field: {$field}");
-        $employeeId=trim((string)$body['employee_id']); if (!preg_match('/^EMP-[A-Za-z0-9-]{1,19}$/',$employeeId)) Response::error('Employee ID must start with EMP- and be unique.',422);
-        if (!preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", trim((string)$body['display_name']))) Response::error('Name contains unsupported characters.',422);
-        if (!empty($body['contact_number']) && !preg_match('/^[0-9+() -]{1,40}$/', trim((string)$body['contact_number']))) Response::error('Contact number contains unsupported characters.',422);
+        $employeeId=trim((string)$body['employee_id']); if (!preg_match('/^EMP-[A-Z0-9]{1,19}$/',$employeeId)) Response::error('Employee ID must start with EMP- and be unique.',422);
+        if (!preg_match("/^[\\p{L}]+(?: [\\p{L}]+)*$/u", trim((string)$body['display_name']))) Response::error('Name contains unsupported characters.',422);
+        if (!empty($body['contact_number']) && !preg_match('/^\\d{11}$/', trim((string)$body['contact_number']))) Response::error('Contact number contains unsupported characters.',422);
         if (!in_array($body['role_code'], ['super_admin','admin','staff'], true)) Response::error('Invalid employee role.', 422);
         $role = $db->prepare('SELECT id FROM roles WHERE code=?'); $role->execute([$body['role_code']]); $roleId = $role->fetchColumn();
         if (!$roleId) Response::error('Role not found.', 422);
@@ -210,7 +210,7 @@ try {
         $losesLastSuperAdmin=$targetRole==='super_admin' && ((array_key_exists('is_active',$body) && !$body['is_active']) || (isset($body['role_code']) && $body['role_code']!=='super_admin'));
         if ($losesLastSuperAdmin && (int)$db->query("SELECT COUNT(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE r.code='super_admin' AND u.is_active=1")->fetchColumn() <= 1) Response::error('At least one active Super Admin account is required.',422);
         $fields=[]; $values=[];
-        foreach (['display_name','contact_number'] as $field) if (array_key_exists($field,$body)) { $value=trim((string)$body[$field]); if ($field==='display_name' && !preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", $value)) Response::error('Name contains unsupported characters.',422); if ($field==='contact_number' && $value!=='' && !preg_match('/^[0-9+() -]{1,40}$/', $value)) Response::error('Contact number contains unsupported characters.',422); $fields[]="$field=?"; $values[]=$value ?: null; }
+        foreach (['display_name','contact_number'] as $field) if (array_key_exists($field,$body)) { $value=trim((string)$body[$field]); if ($field==='display_name' && !preg_match("/^[\\p{L}]+(?: [\\p{L}]+)*$/u", $value)) Response::error('Name contains unsupported characters.',422); if ($field==='contact_number' && $value!=='' && !preg_match('/^\\d{11}$/', $value)) Response::error('Contact number contains unsupported characters.',422); $fields[]="$field=?"; $values[]=$value ?: null; }
         if (array_key_exists('profile_image_url',$body)) { $url=$body['profile_image_url']; if (!$validProfileImageUrl($url)) Response::error('Invalid profile photo URL.',422); $fields[]='profile_image_url=?'; $values[]=$url; }
         if (array_key_exists('is_active',$body)) { $fields[]='is_active=?'; $values[]=$body['is_active'] ? 1 : 0; }
         if (array_key_exists('role_code',$body)) { if (!in_array($body['role_code'],['super_admin','admin','staff'],true)) Response::error('Invalid employee role.',422); $role=$db->prepare('SELECT id FROM roles WHERE code=?'); $role->execute([$body['role_code']]); $fields[]='role_id=?'; $values[]=$role->fetchColumn(); }
