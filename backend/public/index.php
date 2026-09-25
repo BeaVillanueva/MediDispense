@@ -20,6 +20,14 @@ $validProfileImageUrl = static function (?string $url): bool {
     $parts = parse_url($url);
     return is_array($parts) && in_array($parts['scheme'] ?? '', ['http','https'], true) && ($parts['host'] ?? '') === ($_SERVER['HTTP_HOST'] ?? '') && preg_match('#/manus-storage/profile-photos/[A-Za-z0-9._-]{1,180}$#', $parts['path'] ?? '') === 1;
 };
+$validateRegularText = static function (mixed $value, string $label): string {
+    if (!is_string($value)) Response::error("{$label} must be text.",422);
+    if ($value !== trim($value) || preg_match('/[\'"`;\\\\<>]/u',$value)) Response::error("{$label} contains invalid characters or leading/trailing spaces.",422);
+    return $value;
+};
+$validPersonName = static function (mixed $value): bool {
+    return is_string($value) && preg_match("/^[\\p{L}]+(?: [\\p{L}]+)*$/u", $value) === 1;
+};
 
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
 if ($origin === '' || in_array($origin, $config['cors_origins'], true)) {
@@ -61,7 +69,8 @@ try {
         }
         if (!$profile && $provision) {
             $email = (string)($claims['email'] ?? ('firebase-' . $claims['sub'] . '@local.invalid'));
-            $displayName = (string)($claims['name'] ?? $email);
+            $displayName = trim((string)($claims['name'] ?? ''));
+            if ($displayName === '' || !preg_match("/^[\\p{L}]+(?:[ ]+[\\p{L}]+)*$/u", $displayName)) $displayName = 'Employee';
             $ownerEmail = (string)$config['firebase']['initial_super_admin_email'];
             $hasOwner = (int)$db->query("SELECT COUNT(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE r.code='super_admin'")->fetchColumn() > 0;
             $isInitialOwner = !$hasOwner && $ownerEmail !== '' && strtolower($email) === $ownerEmail;
@@ -132,8 +141,8 @@ try {
     }
     if ($path === '/api/profile' && in_array($method, ['PATCH','PUT'], true)) {
         $user=$auth(['super_admin','admin','staff']); $body=requestBody(); $fields=[]; $values=[];
-        if (array_key_exists('display_name',$body)) { $name=trim((string)$body['display_name']); if ($name==='' || !preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", $name)) Response::error('Name contains unsupported characters.',422); $fields[]='display_name=?'; $values[]=$name; }
-        if (array_key_exists('contact_number',$body)) { $contact=trim((string)$body['contact_number']); if ($contact!=='' && !preg_match('/^[0-9+() -]{1,40}$/', $contact)) Response::error('Contact number contains unsupported characters.',422); $fields[]='contact_number=?'; $values[]=$contact ?: null; }
+        if (array_key_exists('display_name',$body)) { $name=(string)$body['display_name']; if (!$validPersonName($name)) Response::error('Name can only contain letters and single spaces between words.',422); $fields[]='display_name=?'; $values[]=$name; }
+        if (array_key_exists('contact_number',$body)) { $contact=(string)$body['contact_number']; if ($contact!=='' && !preg_match('/^[0-9]{11}$/', $contact)) Response::error('Contact number must contain exactly 11 digits.',422); $fields[]='contact_number=?'; $values[]=$contact ?: null; }
         if (!$fields) Response::error('No editable profile fields supplied.',422);
         $values[]=$user['id']; $db->prepare('UPDATE users SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('profile_updated','Employee updated their own profile.',(int)$user['id'],'user'); Response::json(['success'=>true]);
     }
@@ -190,16 +199,18 @@ try {
     if ($path === '/api/users' && $method === 'POST') {
         $actor = $auth(['super_admin']); $body = requestBody();
         foreach (['firebase_uid','email','display_name','employee_id','role_code'] as $field) if (!array_key_exists($field, $body)) Response::error("Missing field: {$field}");
-        $employeeId=trim((string)$body['employee_id']); if (!preg_match('/^EMP-[A-Za-z0-9-]{1,19}$/',$employeeId)) Response::error('Employee ID must start with EMP- and be unique.',422);
-        if (!preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", trim((string)$body['display_name']))) Response::error('Name contains unsupported characters.',422);
-        if (!empty($body['contact_number']) && !preg_match('/^[0-9+() -]{1,40}$/', trim((string)$body['contact_number']))) Response::error('Contact number contains unsupported characters.',422);
+        $employeeId=strtoupper(trim((string)$body['employee_id'])); if (!preg_match('/^EMP-[A-Z0-9]{1,19}$/',$employeeId)) Response::error('Employee ID contains invalid characters.',422);
+        $displayName=(string)$body['display_name']; if (!$validPersonName($displayName)) Response::error('Name can only contain letters and single spaces between words.',422);
+        $email=trim((string)$body['email']); if (!filter_var($email,FILTER_VALIDATE_EMAIL) || strlen($email)>320) Response::error('Enter a valid email address.',422);
+        $contactNumber=(string)($body['contact_number'] ?? ''); if ($contactNumber!=='' && !preg_match('/^[0-9]{11}$/',$contactNumber)) Response::error('Contact number must contain exactly 11 digits.',422);
         if (!in_array($body['role_code'], ['super_admin','admin','staff'], true)) Response::error('Invalid employee role.', 422);
         $role = $db->prepare('SELECT id FROM roles WHERE code=?'); $role->execute([$body['role_code']]); $roleId = $role->fetchColumn();
         if (!$roleId) Response::error('Role not found.', 422);
         $imageUrl=$body['profile_image_url'] ?? null;
         if (!$validProfileImageUrl($imageUrl)) Response::error('Invalid profile photo URL.',422);
         $stmt = $db->prepare('INSERT INTO users (firebase_uid,employee_id,email,display_name,contact_number,profile_image_url,role_id,is_active,email_verified_at) VALUES (?,?,?,?,?,?,?,1,?)');
-        try { $stmt->execute([$body['firebase_uid'],$employeeId,$body['email'],$body['display_name'],$body['contact_number'] ?? null,$imageUrl,$roleId,!empty($body['email_verified']) ? date('Y-m-d H:i:s') : null]); } catch (PDOException $e) { if ((string)$e->getCode()==='23000') Response::error('Employee ID or email already exists.',409); throw $e; }
+        $contactNumber=$contactNumber ?: null;
+        try { $stmt->execute([$body['firebase_uid'],$employeeId,$email,$displayName,$contactNumber,$imageUrl,$roleId,!empty($body['email_verified']) ? date('Y-m-d H:i:s') : null]); } catch (PDOException $e) { if ((string)$e->getCode()==='23000') Response::error('Employee ID or email already exists.',409); throw $e; }
         $id = (int)$db->lastInsertId(); $log('employee_created','Employee account profile created.',(int)$actor['id'],'user',['employee_id'=>$id,'role'=>$body['role_code']]); Response::json(['id'=>$id],201);
     }
     if (preg_match('#^/api/users/(\d+)$#', $path, $matches) && in_array($method, ['PATCH','PUT'], true)) {
@@ -210,7 +221,7 @@ try {
         $losesLastSuperAdmin=$targetRole==='super_admin' && ((array_key_exists('is_active',$body) && !$body['is_active']) || (isset($body['role_code']) && $body['role_code']!=='super_admin'));
         if ($losesLastSuperAdmin && (int)$db->query("SELECT COUNT(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE r.code='super_admin' AND u.is_active=1")->fetchColumn() <= 1) Response::error('At least one active Super Admin account is required.',422);
         $fields=[]; $values=[];
-        foreach (['display_name','contact_number'] as $field) if (array_key_exists($field,$body)) { $value=trim((string)$body[$field]); if ($field==='display_name' && !preg_match("/^[\\p{L}0-9 .,'-]{1,160}$/u", $value)) Response::error('Name contains unsupported characters.',422); if ($field==='contact_number' && $value!=='' && !preg_match('/^[0-9+() -]{1,40}$/', $value)) Response::error('Contact number contains unsupported characters.',422); $fields[]="$field=?"; $values[]=$value ?: null; }
+        foreach (['display_name','contact_number'] as $field) if (array_key_exists($field,$body)) { $value=(string)$body[$field]; if ($field==='display_name' && !$validPersonName($value)) Response::error('Name can only contain letters and single spaces between words.',422); if ($field==='contact_number' && $value!=='' && !preg_match('/^[0-9]{11}$/', $value)) Response::error('Contact number must contain exactly 11 digits.',422); $fields[]="$field=?"; $values[]=$value ?: null; }
         if (array_key_exists('profile_image_url',$body)) { $url=$body['profile_image_url']; if (!$validProfileImageUrl($url)) Response::error('Invalid profile photo URL.',422); $fields[]='profile_image_url=?'; $values[]=$url; }
         if (array_key_exists('is_active',$body)) { $fields[]='is_active=?'; $values[]=$body['is_active'] ? 1 : 0; }
         if (array_key_exists('role_code',$body)) { if (!in_array($body['role_code'],['super_admin','admin','staff'],true)) Response::error('Invalid employee role.',422); $role=$db->prepare('SELECT id FROM roles WHERE code=?'); $role->execute([$body['role_code']]); $fields[]='role_id=?'; $values[]=$role->fetchColumn(); }
@@ -227,17 +238,19 @@ try {
     if ($path === '/api/settings' && $method === 'GET') { $auth(['super_admin']); Response::json($db->query('SELECT setting_key,setting_value,updated_by,updated_at FROM system_settings ORDER BY setting_key')->fetchAll()); }
     if ($path === '/api/settings' && in_array($method, ['POST','PATCH','PUT'], true)) {
         $actor = $auth(['super_admin']); $body=requestBody(); if (!isset($body['setting_key'],$body['setting_value'])) Response::error('setting_key and setting_value are required.');
-        $db->prepare('INSERT INTO system_settings (setting_key,setting_value,updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_by=VALUES(updated_by)')->execute([$body['setting_key'],(string)$body['setting_value'],$actor['id']]); $log('system_setting_updated','System setting updated.',(int)$actor['id'],'user',['setting_key'=>$body['setting_key']]); Response::json(['success'=>true]);
+        $settingKey=$validateRegularText($body['setting_key'],'Setting key'); $settingValue=$validateRegularText((string)$body['setting_value'],'Setting value');
+        $db->prepare('INSERT INTO system_settings (setting_key,setting_value,updated_by) VALUES (?,?,?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value),updated_by=VALUES(updated_by)')->execute([$settingKey,$settingValue,$actor['id']]); $log('system_setting_updated','System setting updated.',(int)$actor['id'],'user',['setting_key'=>$settingKey]); Response::json(['success'=>true]);
     }
     if (preg_match('#^/api/medicines/(\d+)$#', $path, $matches) && in_array($method, ['PATCH','PUT','DELETE'], true)) {
         $actor = $auth(['super_admin','admin']); $medicineId=(int)$matches[1];
         if ($method === 'DELETE') { $db->prepare('UPDATE medicines SET is_enabled=0 WHERE id=?')->execute([$medicineId]); $log('medicine_archived','Medicine archived from vending catalog.',(int)$actor['id'],'user',['medicine_id'=>$medicineId]); Response::json(['success'=>true]); }
-        $body=requestBody(); $allowed=['name'=>'name','generic_name'=>'generic_name','description'=>'description','dosage_information'=>'dosage_information','usage_instructions'=>'usage_instructions','unit_price'=>'unit_price','expiry_date'=>'expiry_date','minimum_stock_level'=>'minimum_stock_level','is_enabled'=>'is_enabled','image_url'=>'image_url']; $fields=[];$values=[]; foreach($allowed as $key=>$column) if(array_key_exists($key,$body)){ $fields[]="$column=?";$values[]=$body[$key]; } if(!$fields) Response::error('No editable medicine fields supplied.',422); $values[]=$medicineId; $db->prepare('UPDATE medicines SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('medicine_updated','Medicine record updated.',(int)$actor['id'],'user',['medicine_id'=>$medicineId]); Response::json(['success'=>true]);
+        $body=requestBody(); $allowed=['name'=>'name','generic_name'=>'generic_name','description'=>'description','dosage_information'=>'dosage_information','usage_instructions'=>'usage_instructions','unit_price'=>'unit_price','expiry_date'=>'expiry_date','minimum_stock_level'=>'minimum_stock_level','is_enabled'=>'is_enabled','image_url'=>'image_url']; $textFields=['name','generic_name','description','dosage_information','usage_instructions']; $fields=[];$values=[]; foreach($allowed as $key=>$column) if(array_key_exists($key,$body)){ $value=in_array($key,$textFields,true)?$validateRegularText($body[$key],ucwords(str_replace('_',' ',$key))):$body[$key]; $fields[]="$column=?";$values[]=$value; } if(!$fields) Response::error('No editable medicine fields supplied.',422); $values[]=$medicineId; $db->prepare('UPDATE medicines SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('medicine_updated','Medicine record updated.',(int)$actor['id'],'user',['medicine_id'=>$medicineId]); Response::json(['success'=>true]);
     }
 
     if ($path === '/api/medicines' && $method === 'POST') {
         $actor = $auth(['super_admin','admin']); $body = requestBody();
         foreach (['name','generic_name','category_id','description','dosage_information','usage_instructions','unit_price','expiry_date','minimum_stock_level','stock_quantity'] as $field) if (!array_key_exists($field, $body)) Response::error("Missing field: {$field}");
+        foreach (['name','generic_name','description','dosage_information','usage_instructions'] as $field) $body[$field]=$validateRegularText($body[$field],ucwords(str_replace('_',' ',$field)));
         $db->beginTransaction();
         $stmt = $db->prepare('INSERT INTO medicines (category_id,name,generic_name,description,dosage_information,usage_instructions,image_url,unit_price,expiry_date,minimum_stock_level,is_enabled,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
         $stmt->execute([(int)$body['category_id'], $body['name'], $body['generic_name'], $body['description'], $body['dosage_information'], $body['usage_instructions'], $body['image_url'] ?? null, $body['unit_price'], $body['expiry_date'], $body['minimum_stock_level'], (int)($body['is_enabled'] ?? 1), $actor['id']]);
@@ -246,6 +259,7 @@ try {
 
     if ($path === '/api/inventory/adjust' && $method === 'PATCH') {
         $actor = $auth(['super_admin','admin']); $body = requestBody(); $medicineId = (int)($body['medicine_id'] ?? 0); $delta = (int)($body['delta'] ?? 0); if ($medicineId < 1 || $delta === 0) Response::error('medicine_id and a non-zero delta are required.');
+        if (isset($body['reason'])) $body['reason']=$validateRegularText($body['reason'],'Adjustment reason');
         $db->beginTransaction(); $stmt = $db->prepare('SELECT quantity FROM inventory WHERE medicine_id=? FOR UPDATE'); $stmt->execute([$medicineId]); $previous = $stmt->fetchColumn(); if ($previous === false) Response::error('Inventory record not found.', 404); $new = max(0, (int)$previous + $delta); $db->prepare('UPDATE inventory SET quantity=?,last_counted_at=NOW() WHERE medicine_id=?')->execute([$new, $medicineId]); $db->prepare("INSERT INTO stock_movements (medicine_id,previous_quantity,new_quantity,change_quantity,change_type,reason,actor_user_id) VALUES (?,?,?,?,?,?,?)")->execute([$medicineId,$previous,$new,$delta,$delta > 0 ? 'manual_addition' : 'adjustment',$body['reason'] ?? 'Manual adjustment',$actor['id']]); $db->commit(); $log('stock_adjusted', 'Inventory adjusted.', (int)$actor['id'], 'user', ['medicine_id'=>$medicineId,'previous'=>$previous,'new'=>$new]); Response::json(['medicine_id'=>$medicineId,'previous_quantity'=>(int)$previous,'new_quantity'=>$new]);
     }
 

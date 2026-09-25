@@ -73,3 +73,26 @@ table { width:100%; border-collapse:collapse; text-align:left; } .table-wrap { o
 
 .sidebar { scrollbar-width: none; -ms-overflow-style: none; }
 .sidebar::-webkit-scrollbar { display: none; }
+.auth-validation-note { display:block; margin-top:6px; color:#c45667; font-size:10px; font-weight:700; line-height:1.35; }
+.notification-area { position:relative; }
+.notification-panel { width:340px; max-height:420px; overflow:auto; position:absolute; top:44px; right:0; z-index:30; padding:8px; border:1px solid #e1e9f3; border-radius:12px; background:#fff; box-shadow:0 18px 40px #24446622; }
+.notification-panel-head { display:flex; align-items:center; justify-content:space-between; padding:7px 8px 9px; color:#203957; font-size:12px; }
+.notification-panel-head button { display:grid; place-items:center; border:0; color:#8192a6; background:transparent; cursor:pointer; }
+.notification-item { display:flex; width:100%; gap:9px; padding:10px 8px; border:0; border-radius:8px; text-align:left; background:#f5f8ff; cursor:pointer; }
+.notification-item + .notification-item { margin-top:3px; }
+.notification-item.read { background:#fff; }
+.notification-item:hover { background:#edf4ff; }
+.notification-item > span:nth-child(2) { display:flex; min-width:0; flex-direction:column; gap:3px; }
+.notification-item strong { color:#29415f; font-size:10px; }
+.notification-item small { overflow:hidden; color:#71839a; font-size:9px; line-height:1.4; text-overflow:ellipsis; white-space:nowrap; }
+.notification-item em { color:#a0acba; font-size:8px; font-style:normal; }
+.notification-dot { flex:0 0 8px; width:8px; height:8px; margin-top:3px; border-radius:50%; background:#4b83ed; }
+.notification-dot.warning { background:#f0a33d; }
+.notification-dot.danger { background:#e66d76; }
+.notification-dot.info { background:#4b83ed; }
+.notification-empty { margin:16px 8px; color:#8192a6; font-size:10px; text-align:center; }
+.notification-panel-actions { display:flex; align-items:center; gap:8px; }
+.notification-clear { border:0; color:#3d75d6; background:transparent; font-size:9px; font-weight:800; cursor:pointer; }
+.notification-clear:hover { color:#1e56b8; text-decoration:underline; }
+.notification-remove { display:grid; flex:0 0 22px; width:22px; height:22px; place-items:center; align-self:flex-start; margin-left:auto; border-radius:5px; color:#9aa9ba; cursor:pointer; }
+.notification-remove:hover { color:#d75d68; background:#ffecef; }
