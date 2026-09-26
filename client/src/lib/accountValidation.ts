@@ -12,6 +12,7 @@ export const acceptNameInput = (value: string) => NAME_PARTIAL_PATTERN.test(valu
 export const acceptContactInput = (value: string) => CONTACT_PARTIAL_PATTERN.test(value) ? value : null;
 export const acceptEmployeeIdInput = (value: string) => { const normalized = value.toUpperCase(); return EMPLOYEE_ID_PARTIAL_PATTERN.test(normalized) ? normalized : null; };
 export const acceptEmailInput = (value: string) => !/\s/.test(value) && !hasRestrictedCharacters(value) && EMAIL_PARTIAL_PATTERN.test(value) ? value : null;
+export const sanitizePasswordInput = (value: string) => value.replace(/\s/g, "").replace(/['"`;\\/<>]/g, "").slice(0, 20);
 export const validateAccountFields = (name: string, contact: string, employeeId?: string) => {
   if (!NAME_PATTERN.test(name)) throw new Error("Name can only contain letters and single spaces.");
   if (contact !== "" && !CONTACT_PATTERN.test(contact)) throw new Error("Contact number must contain exactly 11 digits.");
