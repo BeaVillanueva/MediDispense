@@ -1,23 +1,535 @@
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  FlaskConical,
+  LoaderCircle,
+  ShoppingBag,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
-import { useLocation } from "wouter";
-import { ArrowLeft, Check, ChevronRight, CircleDollarSign, FlaskConical, Info, LoaderCircle, Minus, Plus, ShieldCheck, Sparkles, X } from "lucide-react";
-import type { Medicine, Transaction } from "@shared/medidispense";
-
-const peso = (value: number) => `₱${value.toFixed(2)}`;
-type Step = "home" | "details" | "billing" | "payment" | "dispensing" | "receipt";
-function Stepper({ step }: { step: Step }) { const names = ["Select", "Details", "Bill", "Pay", "Dispense"]; const active = { home: 0, details: 1, billing: 2, payment: 3, dispensing: 4, receipt: 4 }[step]; return <div className="kiosk-stepper">{names.map((name, index) => <div className={`kiosk-step ${index <= active ? "active" : ""}`} key={name}><span>{index < active ? <Check size={12} /> : index + 1}</span><label>{name}</label>{index < 4 ? <i /> : null}</div>)}</div>; }
-function QuantityPicker({ value, onChange }: { value: number; onChange: (value: number) => void }) { return <div className="quantity-picker"><button onClick={() => onChange(Math.max(1, value - 1))}><Minus size={15} /></button><strong>{value}</strong><button onClick={() => onChange(value + 1)}><Plus size={15} /></button></div>; }
+import {
+  type Purchase,
+  peso,
+  purchasable,
+  purchaseTotal,
+  quantityLimit,
+  reviewPurchase,
+} from "@/lib/kioskPurchase";
+import { useKioskCheckout } from "@/hooks/useKioskCheckout";
+import {
+  Confirmation,
+  MedicineImage,
+  NoChangeNotice,
+  QuantityPicker,
+  SafetyNotice,
+} from "@/components/kiosk/KioskControls";
+import { CheckoutPanel } from "@/components/kiosk/CheckoutPanel";
+import "./kiosk.css";
 
 export default function Kiosk() {
-  const [, setLocation] = useLocation(); const medicines = trpc.kiosk.medicines.useQuery(undefined, { refetchInterval: 3000 });
-  const [step, setStep] = useState<Step>("home"); const [selected, setSelected] = useState<Medicine | null>(null); const [quantity, setQuantity] = useState(1); const [transaction, setTransaction] = useState<Transaction | null>(null); const [amountInserted, setAmountInserted] = useState(0);
-  const checkout = trpc.kiosk.checkout.useMutation({ onSuccess: (value) => { setTransaction(value); setAmountInserted(value.total); setStep("payment"); } });
-  const requestDispense = trpc.kiosk.requestDispense.useMutation({ onSuccess: (value) => setTransaction(value) });
-  const verifyPayment = trpc.kiosk.verifyPayment.useMutation({ onSuccess: (value) => { setTransaction(value); setStep("dispensing"); requestDispense.mutate({ transactionId: value.id }); } });
-  const verifyDispense = trpc.kiosk.verifyDispense.useMutation({ onSuccess: (value) => { setTransaction(value); setStep(value.dispensingStatus === "dispensed" ? "receipt" : "dispensing"); } });
-  const available = medicines.data ?? []; const total = useMemo(() => (selected?.price ?? 0) * quantity, [selected, quantity]);
-  const reset = () => { setStep("home"); setSelected(null); setQuantity(1); setTransaction(null); setAmountInserted(0); medicines.refetch(); };
-  const selectMedicine = (medicine: Medicine) => { setSelected(medicine); setQuantity(1); setStep("details"); };
-  return <div className="kiosk-shell"><header className="kiosk-header"><div className="kiosk-brand"><div className="brand-mark"><FlaskConical size={20} /></div><div><strong>Medi<span>Dispense</span></strong><small>SELF-SERVICE HEALTH STATION</small></div></div><div className="kiosk-machine"><span className="online-dot"></span> MACHINE MD-001 <b>·</b> SLOT CAPACITY 3</div><button className="kiosk-exit" onClick={() => setLocation("/")}>Admin view <ArrowLeft size={15} /></button></header><main className="kiosk-main"><Stepper step={step} />{step === "home" ? <div className="kiosk-home"><div className="kiosk-intro"><div><div className="eyebrow">MACHINE 01 · READY TO SERVE</div><h1>Select your <em>medicine.</em></h1><p>Choose from the available products below. Every item is verified against live inventory before checkout.</p></div><div className="intro-badge"><Sparkles size={17} /><span><strong>Live inventory</strong><small>Updated just now</small></span></div></div><div className="kiosk-grid">{available.map((medicine) => <button className="kiosk-product" key={medicine.id} onClick={() => selectMedicine(medicine)}><div className="product-image"><img src={medicine.imageUrl} alt="" /><span>SLOT {medicine.slotNumber ?? "—"}</span></div><div className="product-info"><small>{medicine.category.toUpperCase()}</small><h3>{medicine.name}</h3><p>{medicine.genericName}</p><div className="product-bottom"><strong>{peso(medicine.price)}</strong><span className="available"><span className="online-dot"></span> {medicine.stockQuantity} available</span></div></div><ChevronRight className="product-arrow" size={19} /></button>)}</div><div className="kiosk-safety"><ShieldCheck size={17} /><span><strong>Please read before purchase.</strong> Medicines are dispensed exactly as configured by the administrator. Read the packaging and consult a pharmacist or healthcare professional if unsure.</span></div></div> : null}{step === "details" && selected ? <div className="kiosk-detail-layout"><div className="kiosk-detail-image"><img src={selected.imageUrl} alt={selected.name} /><span>SLOT {selected.slotNumber}</span></div><div className="kiosk-detail-copy"><button className="back-link" onClick={() => setStep("home")}><ArrowLeft size={15} /> Back to medicines</button><div className="eyebrow">{selected.category.toUpperCase()}</div><h1>{selected.name}</h1><p className="generic">{selected.genericName}</p><div className="detail-price">{peso(selected.price)} <span>per unit</span></div><div className="detail-section"><h3><Info size={16} /> Medicine information</h3><p>{selected.description}</p></div><div className="detail-section dosage-section"><h3><ShieldCheck size={16} /> Dosage & usage information</h3><p>{selected.dosage}</p><p>{selected.instructions}</p></div><div className="kiosk-disclaimer">Read the medicine label and follow the recommended dosage. If unsure, consult a pharmacist or healthcare professional.</div><div className="detail-actions"><button className="secondary-button large" onClick={() => setStep("home")}>Choose another</button><button className="kiosk-primary" onClick={() => setStep("billing")}>Proceed to billing <ChevronRight size={18} /></button></div></div></div> : null}{step === "billing" && selected ? <div className="kiosk-centered"><div className="kiosk-card bill-card"><div className="kiosk-card-head"><div><div className="eyebrow">STEP 03 · CONFIRM PURCHASE</div><h2>Your bill</h2></div><div className="bill-lock"><ShieldCheck size={16} /> Live stock check</div></div><div className="bill-line item-line"><div className="mini-product"><img src={selected.imageUrl} alt="" /></div><div><strong>{selected.name}</strong><small>{peso(selected.price)} per unit · {selected.stockQuantity} available</small></div><QuantityPicker value={quantity} onChange={(value) => setQuantity(Math.min(selected.stockQuantity, value))} /><strong>{peso(total)}</strong></div><div className="bill-totals"><div><span>Subtotal</span><strong>{peso(total)}</strong></div><div><span>Service fee</span><strong>₱0.00</strong></div><div className="total-line"><span>Total due</span><strong>{peso(total)}</strong></div></div><div className="bill-notice"><Info size={15} /><span>Inventory is checked again immediately before payment. Stock is only deducted after the sensor confirms successful dispensing.</span></div><div className="detail-actions"><button className="secondary-button large" onClick={() => setStep("details")}><ArrowLeft size={15} /> Back</button><button className="kiosk-primary" disabled={checkout.isPending} onClick={() => checkout.mutate({ items: [{ medicineId: selected.id, quantity }] })}>{checkout.isPending ? "Checking stock..." : "Continue to payment"}<ChevronRight size={18} /></button></div></div></div> : null}{step === "payment" && transaction ? <div className="kiosk-centered"><div className="kiosk-card payment-card"><div className="payment-orb"><CircleDollarSign size={29} /></div><div className="eyebrow">STEP 04 · COIN ACCEPTOR</div><h2>Insert payment</h2><p className="center-copy">Please insert coins into the acceptor. Dispensing will begin only after payment is verified.</p><div className="payment-amounts"><div><small>AMOUNT DUE</small><strong>{peso(transaction.total)}</strong></div><div className="payment-divider"></div><div><small>AMOUNT INSERTED</small><strong className="text-green">{peso(amountInserted)}</strong></div></div><div className="coin-track"><div className="coin-fill" style={{ width: `${Math.min(100, amountInserted / transaction.total * 100)}%` }}></div></div><div className={`payment-status ${amountInserted >= transaction.total ? "ready" : "waiting"}`}>{amountInserted >= transaction.total ? <><Check size={16} /> Payment amount received. Verify to continue.</> : <>Please insert {peso(Math.max(0, transaction.total - amountInserted))} more.</>}</div><div className="sim-coins"><span>Demo coin input</span><button onClick={() => setAmountInserted((value) => Math.min(transaction.total + 20, value + 5))}>+ ₱5</button><button onClick={() => setAmountInserted((value) => Math.min(transaction.total + 20, value + 10))}>+ ₱10</button><button onClick={() => setAmountInserted((value) => Math.min(transaction.total + 20, value + 20))}>+ ₱20</button></div><div className="detail-actions"><button className="secondary-button large" onClick={reset}>Cancel</button><button className="kiosk-primary" disabled={amountInserted < transaction.total || verifyPayment.isPending} onClick={() => verifyPayment.mutate({ transactionId: transaction.id, amountPaid: amountInserted })}>{verifyPayment.isPending ? "Verifying..." : "Verify payment"}<ChevronRight size={18} /></button></div></div></div> : null}{step === "dispensing" && transaction ? <div className="kiosk-centered"><div className="kiosk-card dispensing-card"><div className="dispense-animation"><div className="dispense-ring"><LoaderCircle size={36} /></div></div><div className="eyebrow">STEP 05 · SENSOR VERIFICATION</div><h2>{transaction.dispensingStatus === "dispensed" ? "Medicine dispensed" : "Preparing your medicine..."}</h2><p className="center-copy">Payment confirmed. Motor {transaction.slotNumber ? `MOTOR-${transaction.slotNumber}` : "command"} is active. Waiting for IR sensor confirmation.</p><div className="dispense-track"><span className="done"><Check size={13} /></span><i className="done"></i><span className="done"><Check size={13} /></span><i className={transaction.dispensingStatus === "dispensing" ? "active" : "done"}></i><span className={transaction.dispensingStatus === "dispensed" ? "done" : "active"}>{transaction.dispensingStatus === "dispensed" ? <Check size={13} /> : <LoaderCircle size={13} />}</span></div><div className="sensor-readout"><div><span className="online-dot"></span><strong>IR sensor {transaction.dispensingStatus === "dispensed" ? "confirmed drop" : "monitoring"}</strong></div><span>{transaction.dispensingStatus === "dispensed" ? "Success" : "Motor running"}</span></div>{transaction.dispensingStatus === "dispensing" ? <div className="sim-coins"><span>Demo sensor input</span><button onClick={() => verifyDispense.mutate({ transactionId: transaction.id, success: true })}><Check size={13} /> Confirm successful</button><button className="danger-outline" onClick={() => verifyDispense.mutate({ transactionId: transaction.id, success: false })}><X size={13} /> Simulate failure</button></div> : null}{transaction.dispensingStatus === "failed" ? <div className="payment-status failed"><X size={16} /> Dispensing failed. Stock was not deducted.</div> : null}</div></div> : null}{step === "receipt" && transaction ? <div className="kiosk-centered"><div className="kiosk-card receipt-card"><div className="receipt-check"><Check size={27} /></div><div className="eyebrow">TRANSACTION COMPLETE</div><h2>Thank you.</h2><p className="center-copy">Your medicine has been dispensed successfully.</p><div className="receipt-paper"><div className="receipt-logo"><FlaskConical size={16} /> MEDIDISPENSE</div><div className="receipt-id">{transaction.id}<span>{new Date(transaction.createdAt).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</span></div>{transaction.items.map((item) => <div className="receipt-row" key={item.medicineId}><span>{item.medicineName} × {item.quantity}</span><strong>{peso(item.subtotal)}</strong></div>)}<div className="receipt-total"><span>Total paid</span><strong>{peso(transaction.amountPaid)}</strong></div><div className="receipt-row"><span>Change</span><strong>{peso(transaction.change)}</strong></div><div className="receipt-status"><Check size={14} /> DISPENSED · SENSOR VERIFIED</div></div><button className="kiosk-primary full" onClick={reset}>Start new transaction <ChevronRight size={18} /></button></div></div> : null}</main><footer className="kiosk-footer"><span><ShieldCheck size={14} /> Secure transaction · Payment before dispensing</span><span>Need help? Please ask the pharmacy staff.</span></footer></div>;
+  const medicines = trpc.kiosk.medicines.useQuery(undefined, {
+    refetchInterval: 5000,
+    retry: 1,
+  });
+  const checkout = useKioskCheckout();
+  const [view, setView] = useState<"browse" | "details" | "review">("browse");
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [quantity, setQuantity] = useState(1);
+  const [purchase, setPurchase] = useState<Purchase | null>(null);
+  const [category, setCategory] = useState("All medicines");
+  const [confirmation, setConfirmation] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [checking, setChecking] = useState(false);
+  const checkLock = useRef(false);
+  const main = useRef<HTMLElement>(null);
+  const catalog = medicines.data ?? [];
+  const selected = catalog.find(item => item.id === selectedId);
+  const maximum = selected ? quantityLimit(selected) : 0;
+  const selectedQuantity = Math.max(1, Math.min(quantity, maximum));
+  const busy = checkout.busy || checking;
+  const transaction = checkout.transaction;
+  const stage = transaction
+    ? checkout.paymentStatus === "SUCCESS"
+      ? 4
+      : transaction.paymentStatus === "successful"
+        ? 3
+        : 2
+    : view === "review"
+      ? 1
+      : 0;
+  const categories = [
+    "All medicines",
+    ...Array.from(new Set(catalog.map(item => item.category).filter(Boolean))),
+  ];
+  const activeCategory = categories.includes(category)
+    ? category
+    : "All medicines";
+  const changed = purchase ? reviewPurchase(purchase, catalog).changed : false;
+  useEffect(() => {
+    main.current?.focus();
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }, [view, stage]);
+  useEffect(() => {
+    if (view === "details")
+      setQuantity(value => Math.max(1, Math.min(value, maximum)));
+  }, [maximum, view]);
+  const reset = () => {
+    if (!checkout.reset()) return;
+    setPurchase(null);
+    setSelectedId(null);
+    setQuantity(1);
+    setView("browse");
+    setNotice("");
+    setCategory("All medicines");
+    void medicines.refetch();
+  };
+  const buyNow = () => {
+    if (
+      !selected ||
+      maximum < selectedQuantity ||
+      medicines.isError ||
+      busy ||
+      checkout.error
+    )
+      return;
+    setPurchase({
+      selectedMedicine: { ...selected },
+      quantity: selectedQuantity,
+      unitPrice: selected.price,
+      totalAmount: purchaseTotal(selected.price, selectedQuantity),
+    });
+    setNotice("");
+    setView("review");
+  };
+  async function proceed() {
+    if (
+      checkLock.current ||
+      busy ||
+      transaction ||
+      checkout.error ||
+      !purchase ||
+      !checkout.simulationEnabled
+    )
+      return;
+    checkLock.current = true;
+    setChecking(true);
+    setNotice("");
+    try {
+      const fresh = await medicines.refetch();
+      if (fresh.error || !fresh.data) {
+        setNotice(
+          "Unable to check availability. Please try again when the connection returns."
+        );
+        return;
+      }
+      if (reviewPurchase(purchase, fresh.data).changed) {
+        setNotice(
+          "Price or availability changed. Go back to review the medicine and quantity before paying."
+        );
+        return;
+      }
+      await checkout.start(purchase);
+    } finally {
+      setChecking(false);
+      checkLock.current = false;
+    }
+  }
+  return (
+    <div className="kv-shell">
+      <header className="kv-header">
+        <div className="kv-brand">
+          <span className="kv-brand-icon">
+            <FlaskConical size={28} />
+          </span>
+          <div>
+            <strong>
+              Medi<span>Dispense</span>
+            </strong>
+            <small>Your self-service medicine station</small>
+          </div>
+        </div>
+        <span className="kv-preview-label">
+          Customer kiosk · Coin payment only
+        </span>
+      </header>
+      <div className="kv-preview-banner">
+        {checkout.simulationEnabled
+          ? "Development preview · Sample inventory and simulated coins. No real money or medicine is dispensed."
+          : "Preview catalog · Coin payment is unavailable until the physical payment service is connected. Do not insert coins."}
+      </div>
+      <main className="kv-main" ref={main} tabIndex={-1}>
+        <nav aria-label="Purchase progress">
+          <ol className="kv-steps">
+            {[
+              "Choose medicine",
+              "Review purchase",
+              "Coin payment",
+              "Dispensing",
+              "Success",
+            ].map((label, index) => (
+              <li
+                key={label}
+                aria-current={stage === index ? "step" : undefined}
+                className={stage >= index ? "is-active" : ""}
+              >
+                <span>{stage > index ? <Check size={18} /> : index + 1}</span>
+                <strong>{label}</strong>
+              </li>
+            ))}
+          </ol>
+        </nav>
+        {notice && !transaction && (
+          <div className="kv-message" role="status">
+            {notice}
+          </div>
+        )}
+        {checkout.error && (
+          <div className="kv-message kv-error" role="alert">
+            {checkout.error}
+            {transaction && <strong> Reference: {transaction.id}</strong>}
+          </div>
+        )}
+        {transaction ? (
+          <CheckoutPanel
+            checkout={checkout}
+            onFinish={reset}
+            onBack={() => {
+              if (checkout.reset()) {
+                setView("review");
+                void medicines.refetch();
+              }
+            }}
+          />
+        ) : (
+          <>
+            {medicines.isError && (
+              <div className="kv-message kv-error" role="alert">
+                Unable to refresh medicine availability. Purchasing is paused
+                until we reconnect.
+                <button
+                  className="kv-button kv-secondary"
+                  disabled={medicines.isFetching}
+                  onClick={() => void medicines.refetch()}
+                >
+                  {medicines.isFetching ? "Reconnecting…" : "Try again"}
+                </button>
+              </div>
+            )}
+            {view === "browse" && (
+              <>
+                <section className="kv-intro">
+                  <div>
+                    <p className="kv-eyebrow">Care within reach</p>
+                    <h1>What do you need today?</h1>
+                    <p>
+                      Select one medicine, read its information, and choose your
+                      quantity.
+                    </p>
+                  </div>
+                  <span className="kv-inventory-note">
+                    {medicines.isPending
+                      ? "Checking availability…"
+                      : medicines.isError
+                        ? "Connection interrupted"
+                        : "Availability refreshes automatically"}
+                  </span>
+                </section>
+                {catalog.length > 0 && (
+                  <div
+                    className="kv-categories"
+                    aria-label="Medicine categories"
+                  >
+                    {categories.map(value => (
+                      <button
+                        key={value}
+                        aria-pressed={activeCategory === value}
+                        onClick={() => setCategory(value)}
+                      >
+                        {value}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {medicines.isPending ? (
+                  <div className="kv-empty" role="status">
+                    <LoaderCircle className="kv-spin" size={32} />
+                    <h2>Loading medicines</h2>
+                    <p>Checking what is available in this machine.</p>
+                  </div>
+                ) : !medicines.isError && catalog.length === 0 ? (
+                  <div className="kv-empty">
+                    <ShoppingBag size={36} />
+                    <h2>No medicines available right now</h2>
+                    <p>Please ask pharmacy staff for assistance.</p>
+                    <button
+                      className="kv-button kv-secondary"
+                      disabled={medicines.isFetching}
+                      onClick={() => void medicines.refetch()}
+                    >
+                      Check again
+                    </button>
+                  </div>
+                ) : (
+                  <div className="kv-products">
+                    {catalog
+                      .filter(
+                        item =>
+                          activeCategory === "All medicines" ||
+                          item.category === activeCategory
+                      )
+                      .map(medicine => (
+                        <article className="kv-product" key={medicine.id}>
+                          <div className="kv-product-image">
+                            <MedicineImage
+                              key={medicine.imageUrl}
+                              src={medicine.imageUrl}
+                              name={medicine.name}
+                            />
+                            <span>Slot {medicine.slotNumber}</span>
+                          </div>
+                          <div className="kv-product-copy">
+                            <p className="kv-eyebrow">{medicine.category}</p>
+                            <h2>{medicine.name}</h2>
+                            <p>
+                              {medicine.genericName ||
+                                "Generic information not provided"}
+                            </p>
+                            <div className="kv-product-price">
+                              <strong>{peso(medicine.price)}</strong>
+                              <span>per unit</span>
+                            </div>
+                            <p
+                              className={`kv-stock ${purchasable(medicine) ? "" : "kv-unavailable"}`}
+                            >
+                              {purchasable(medicine)
+                                ? `${medicine.stockQuantity} available`
+                                : "Currently unavailable"}
+                            </p>
+                            <button
+                              className="kv-button kv-primary kv-wide"
+                              disabled={
+                                busy ||
+                                !!checkout.error ||
+                                medicines.isError ||
+                                !purchasable(medicine)
+                              }
+                              onClick={() => {
+                                setSelectedId(medicine.id);
+                                setPurchase(null);
+                                setQuantity(1);
+                                setNotice("");
+                                setView("details");
+                              }}
+                            >
+                              Select medicine <ArrowRight size={20} />
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                  </div>
+                )}
+                <SafetyNotice />
+              </>
+            )}
+
+            {view === "details" && (
+              <>
+                <button
+                  className="kv-button kv-back"
+                  disabled={busy || !!checkout.error}
+                  onClick={() => {
+                    setPurchase(null);
+                    setView("browse");
+                  }}
+                >
+                  <ArrowLeft size={20} /> Back to medicines
+                </button>
+                {selected ? (
+                  <section className="kv-details">
+                    <div className="kv-detail-image">
+                      <MedicineImage
+                        key={selected.imageUrl}
+                        src={selected.imageUrl}
+                        name={selected.name}
+                      />
+                    </div>
+                    <div>
+                      <p className="kv-eyebrow">
+                        {selected.category} · Slot {selected.slotNumber}
+                      </p>
+                      <h1>{selected.name}</h1>
+                      <p>{selected.genericName}</p>
+                      <div className="kv-detail-price">
+                        {peso(selected.price)} <span>per unit</span>
+                      </div>
+                      <p className="kv-stock">
+                        {selected.stockQuantity} available
+                      </p>
+                      <div className="kv-information">
+                        <h2>Medicine information</h2>
+                        <p>
+                          {selected.description || "No description provided."}
+                        </p>
+                        <h2>Stored dosage & usage information</h2>
+                        <p>
+                          {selected.dosage || "No dosage information provided."}
+                        </p>
+                        <p>{selected.instructions}</p>
+                        {selected.expiryDate && (
+                          <p>
+                            <strong>Expiry date:</strong> {selected.expiryDate}
+                          </p>
+                        )}
+                      </div>
+                      <SafetyNotice />
+                      <div className="kv-quantity-section">
+                        <h2>Choose quantity</h2>
+                        <QuantityPicker
+                          value={selectedQuantity}
+                          maximum={maximum}
+                          name={selected.name}
+                          onChange={setQuantity}
+                          disabled={
+                            maximum === 0 ||
+                            medicines.isError ||
+                            busy ||
+                            !!checkout.error
+                          }
+                        />
+                        <div className="kv-selection-total">
+                          <span>Total</span>
+                          <strong>
+                            {peso(
+                              purchaseTotal(selected.price, selectedQuantity)
+                            )}
+                          </strong>
+                        </div>
+                      </div>
+                      <button
+                        className="kv-button kv-primary kv-wide"
+                        disabled={
+                          maximum < selectedQuantity ||
+                          medicines.isError ||
+                          busy ||
+                          !!checkout.error
+                        }
+                        onClick={buyNow}
+                      >
+                        Buy Now <ArrowRight size={20} />
+                      </button>
+                    </div>
+                  </section>
+                ) : (
+                  <div className="kv-empty">
+                    <h1>This medicine is no longer available</h1>
+                    <p>
+                      Please return to the selection to choose another medicine.
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
+            {view === "review" && purchase && (
+              <section className="kv-panel kv-purchase-review">
+                <p className="kv-eyebrow">Before inserting coins</p>
+                <h1>Review purchase</h1>
+                <div className="kv-review-medicine">
+                  <div className="kv-medicine-thumbnail">
+                    <MedicineImage
+                      src={purchase.selectedMedicine.imageUrl}
+                      name={purchase.selectedMedicine.name}
+                    />
+                  </div>
+                  <div>
+                    <h2>{purchase.selectedMedicine.name}</h2>
+                    <p>{purchase.selectedMedicine.genericName}</p>
+                  </div>
+                </div>
+                <dl className="kv-review-totals">
+                  <div>
+                    <dt>Unit price</dt>
+                    <dd>{peso(purchase.unitPrice)}</dd>
+                  </div>
+                  <div>
+                    <dt>Quantity</dt>
+                    <dd>{purchase.quantity}</dd>
+                  </div>
+                  <div className="kv-total">
+                    <dt>Total amount</dt>
+                    <dd>{peso(purchase.totalAmount)}</dd>
+                  </div>
+                </dl>
+                <NoChangeNotice />
+                <p>
+                  You can change your selection or cancel before inserting
+                  coins. Once payment begins, inserted coins cannot be returned.
+                </p>
+                {changed && (
+                  <div className="kv-message kv-error" role="alert">
+                    Price or stock changed. Go back and review your selection
+                    again.
+                  </div>
+                )}
+                {!checkout.simulationEnabled && (
+                  <div className="kv-message" role="status">
+                    The physical coin payment service is not connected. Payment
+                    is currently unavailable.
+                  </div>
+                )}
+                <div className="kv-actions">
+                  <button
+                    className="kv-button kv-secondary"
+                    disabled={busy || !!checkout.error}
+                    onClick={() => {
+                      setNotice("");
+                      setView("details");
+                    }}
+                  >
+                    Back
+                  </button>
+                  <button
+                    className="kv-button kv-primary"
+                    disabled={
+                      busy ||
+                      changed ||
+                      medicines.isError ||
+                      !!checkout.error ||
+                      !checkout.simulationEnabled
+                    }
+                    onClick={() => void proceed()}
+                  >
+                    {busy ? "Checking purchase…" : "Proceed to payment"}
+                    <ArrowRight size={20} />
+                  </button>
+                </div>
+                <button
+                  className="kv-button kv-back"
+                  disabled={busy || !!checkout.error}
+                  onClick={() => setConfirmation(true)}
+                >
+                  Cancel purchase
+                </button>
+              </section>
+            )}
+          </>
+        )}
+      </main>
+      <footer className="kv-footer">
+        <span>MediDispense · Exact coins only · No change</span>
+        <span>Need help? Please ask pharmacy staff.</span>
+      </footer>
+      <Confirmation
+        open={confirmation}
+        title="Cancel this purchase?"
+        description="Your selection will be cleared and you will return to the medicine selection."
+        action="Cancel purchase"
+        onCancel={() => setConfirmation(false)}
+        onConfirm={() => {
+          setConfirmation(false);
+          reset();
+        }}
+      />
+    </div>
+  );
 }

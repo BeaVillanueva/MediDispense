@@ -31,6 +31,9 @@ export interface TransactionItem {
 }
 
 export interface Transaction {
+  /** Unit-level preview progress; optional for legacy ledger records. */
+  requestedQuantity?: number;
+  dispensedQuantity?: number;
   id: string;
   items: TransactionItem[];
   total: number;

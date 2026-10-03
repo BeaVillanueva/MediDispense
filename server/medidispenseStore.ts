@@ -44,12 +44,13 @@ let machine: MachineStatus = {
 };
 const refreshStatuses = () => {
   medicines = medicines.map((medicine) => ({ ...medicine, status: deriveStatus(medicine.stockQuantity, medicine.minimumStockLevel, medicine.expiryDate, medicine.enabled), updatedAt: nowIso() }));
-  machine.slots = machine.slots.map((slot) => { const medicine = medicines.find((item) => item.slotNumber === slot.slotNumber); return { ...slot, medicineId: medicine?.id ?? null, medicineName: medicine?.name ?? null, quantity: medicine?.stockQuantity ?? 0, status: medicine ? medicine.stockQuantity === 0 ? "empty" : medicine.stockQuantity <= medicine.minimumStockLevel ? "low" : "ready" : "blocked" }; });
+  machine.slots = machine.slots.map((slot) => { const medicine = medicines.find((item) => item.slotNumber === slot.slotNumber); return { ...slot, medicineId: medicine?.id ?? null, medicineName: medicine?.name ?? null, quantity: medicine?.stockQuantity ?? 0, status: slot.status === "blocked" && slot.medicineId === medicine?.id ? "blocked" : medicine ? medicine.stockQuantity === 0 ? "empty" : medicine.stockQuantity <= medicine.minimumStockLevel ? "low" : "ready" : "blocked" }; });
 };
+const hasActiveSlot = (medicine: Medicine) => machine.slots.some(slot => slot.slotNumber === medicine.slotNumber && slot.medicineId === medicine.id && slot.status !== "blocked");
 const isToday = (value: string) => new Date(value).toDateString() === new Date().toDateString();
 
 export const store = {
-  listMedicines(includeUnavailable = true) { refreshStatuses(); return includeUnavailable ? medicines : medicines.filter((item) => item.enabled && item.slotNumber !== null && item.stockQuantity > 0 && item.status !== "expired"); },
+  listMedicines(includeUnavailable = true) { refreshStatuses(); return includeUnavailable ? medicines : medicines.filter((item) => item.enabled && hasActiveSlot(item) && item.status !== "expired"); },
   getMedicine(id: number) { refreshStatuses(); return medicines.find((medicine) => medicine.id === id); },
   createMedicine(input: Omit<Medicine, "id" | "status" | "dateAdded" | "updatedAt">) { const medicine: Medicine = { ...input, id: nextMedicineId++, status: deriveStatus(input.stockQuantity, input.minimumStockLevel, input.expiryDate, input.enabled), dateAdded: new Date().toISOString().slice(0, 10), updatedAt: nowIso() }; medicines = [medicine, ...medicines]; alerts = [{ id: nextAlertId++, kind: "system", title: "Medicine added", message: `${medicine.name} was added to the catalog.`, severity: "info", createdAt: nowIso(), read: false }, ...alerts]; refreshStatuses(); return medicine; },
   adjustStock(id: number, delta: number, reason: string) { const medicine = medicines.find((item) => item.id === id); if (!medicine) throw new Error("Medicine not found"); medicine.stockQuantity = Math.max(0, medicine.stockQuantity + delta); medicine.updatedAt = nowIso(); alerts = [{ id: nextAlertId++, kind: "system", title: "Inventory updated", message: `${medicine.name}: ${delta >= 0 ? "+" : ""}${delta} units (${reason}).`, severity: "info", createdAt: nowIso(), read: false }, ...alerts]; refreshStatuses(); return medicine; },
@@ -58,9 +59,68 @@ export const store = {
   listAlerts() { return alerts.slice(0, 8); },
   getMachine() { refreshStatuses(); return machine; },
   pingMachine() { machine.online = true; machine.lastCommunication = nowIso(); machine.esp32Status = "Ready"; return machine; },
-  checkout(items: { medicineId: number; quantity: number }[]) { refreshStatuses(); const transactionItems = items.map((item) => { const medicine = medicines.find((candidate) => candidate.id === item.medicineId); if (!medicine || !medicine.enabled || medicine.stockQuantity < item.quantity || medicine.status === "expired" || medicine.status === "out_of_stock") throw new Error(`${medicine?.name ?? "Medicine"} is no longer available.`); return { medicineId: medicine.id, medicineName: medicine.name, quantity: item.quantity, unitPrice: medicine.price, subtotal: medicine.price * item.quantity }; }); const total = transactionItems.reduce((sum, item) => sum + item.subtotal, 0); const transaction: Transaction = { id: `TXN-${String(185 + transactions.length).padStart(6, "0")}`, items: transactionItems, total, amountPaid: 0, change: 0, paymentStatus: "pending", dispensingStatus: "pending", createdAt: nowIso(), slotNumber: medicines.find((item) => item.id === transactionItems[0]?.medicineId)?.slotNumber ?? null }; transactions = [transaction, ...transactions]; return transaction; },
-  verifyPayment(id: string, amountPaid: number) { const transaction = transactions.find((item) => item.id === id); if (!transaction) throw new Error("Transaction not found"); if (amountPaid < transaction.total) throw new Error(`Payment is short by ₱${(transaction.total - amountPaid).toFixed(2)}.`); transaction.amountPaid = amountPaid; transaction.change = amountPaid - transaction.total; transaction.paymentStatus = "successful"; return transaction; },
-  requestDispense(id: string) { const transaction = transactions.find((item) => item.id === id); if (!transaction || transaction.paymentStatus !== "successful") throw new Error("Payment must be verified before dispensing."); transaction.dispensingStatus = "dispensing"; machine.motorStatus = `Running ${transaction.slotNumber ? `MOTOR-${transaction.slotNumber}` : "motor"}`; machine.sensorStatus = "Waiting for IR confirmation"; return transaction; },
-  verifyDispense(id: string, success: boolean) { const transaction = transactions.find((item) => item.id === id); if (!transaction || transaction.dispensingStatus !== "dispensing") throw new Error("No active dispensing request."); if (success) { transaction.dispensingStatus = "dispensed"; transaction.items.forEach((item) => { const medicine = medicines.find((candidate) => candidate.id === item.medicineId); if (medicine) medicine.stockQuantity = Math.max(0, medicine.stockQuantity - item.quantity); }); machine.motorStatus = "Idle"; machine.sensorStatus = "Monitoring"; const slot = machine.slots.find((item) => item.slotNumber === transaction.slotNumber); if (slot) slot.lastDispensingAt = nowIso(); refreshStatuses(); return transaction; } transaction.dispensingStatus = "failed"; machine.motorStatus = "Idle"; machine.sensorStatus = "Dispensing failure detected"; alerts = [{ id: nextAlertId++, kind: "dispensing_failure", title: "Dispensing failed", message: `${transaction.id} requires admin attention. Stock was not deducted.`, severity: "danger", createdAt: nowIso(), read: false }, ...alerts]; return transaction; },
+  checkout(items: { medicineId: number; quantity: number }[]) { refreshStatuses(); if (items.length !== 1) throw new Error("Choose exactly one medicine type per purchase."); const transactionItems = items.map((item) => { const medicine = medicines.find((candidate) => candidate.id === item.medicineId); if (!medicine || !medicine.enabled || !hasActiveSlot(medicine) || !Number.isInteger(item.quantity) || item.quantity < 1 || medicine.stockQuantity < item.quantity || medicine.status === "expired" || medicine.status === "out_of_stock") throw new Error(`${medicine?.name ?? "Medicine"} is no longer available.`); return { medicineId: medicine.id, medicineName: medicine.name, quantity: item.quantity, unitPrice: medicine.price, subtotal: Math.round(medicine.price * 100) * item.quantity / 100 }; }); const total = transactionItems.reduce((sum, item) => sum + item.subtotal, 0); const transaction: Transaction = { id: `TXN-${String(185 + transactions.length).padStart(6, "0")}`, items: transactionItems, requestedQuantity: transactionItems[0].quantity, dispensedQuantity: 0, total, amountPaid: 0, change: 0, paymentStatus: "pending", dispensingStatus: "pending", createdAt: nowIso(), slotNumber: medicines.find((item) => item.id === transactionItems[0]?.medicineId)?.slotNumber ?? null }; transactions = [transaction, ...transactions]; return transaction; },
+  verifyPayment(id: string, amountPaid: number) {
+    const transaction = transactions.find(item => item.id === id);
+    if (!transaction) throw new Error("Transaction not found");
+    if (!Number.isFinite(amountPaid) || Math.round(amountPaid * 100) < Math.round(transaction.total * 100)) throw new Error("The full payment amount is required.");
+    if (transaction.paymentStatus === "successful") {
+      if (transaction.amountPaid !== amountPaid) throw new Error("Payment was already verified with a different amount.");
+      return transaction;
+    }
+    if (transaction.paymentStatus !== "pending" || transaction.dispensingStatus !== "pending") throw new Error("This purchase cannot accept payment.");
+    transaction.amountPaid = Math.round(amountPaid * 100) / 100;
+    // No physical change mechanism: preserve actual paid amount, never promise change.
+    transaction.change = 0;
+    transaction.paymentStatus = "successful";
+    return transaction;
+  },
+  requestDispense(id: string) {
+    const transaction = transactions.find(item => item.id === id);
+    if (!transaction || transaction.paymentStatus !== "successful") throw new Error("Payment must be verified before dispensing.");
+    if (transaction.dispensingStatus === "dispensing" || transaction.dispensingStatus === "dispensed") return transaction;
+    if (transaction.dispensingStatus !== "pending") throw new Error("A failed purchase requires assistance; it cannot restart dispensing.");
+    transaction.dispensingStatus = "dispensing";
+    machine.motorStatus = "Preview cycle awaiting confirmation";
+    machine.sensorStatus = "Waiting for simulated unit confirmation";
+    return transaction;
+  },
+  // Preview-only unit acknowledgement. Production requires authenticated sensor
+  // events with transaction + unit/cycle IDs and atomic persistent stock updates.
+  verifyDispense(id: string, success: boolean, unitNumber?: number) {
+    const transaction = transactions.find(item => item.id === id);
+    if (!transaction) throw new Error("Transaction not found");
+    const requested = transaction.requestedQuantity ?? transaction.items[0]?.quantity ?? 0;
+    const confirmed = transaction.dispensedQuantity ?? 0;
+    const unit = unitNumber ?? (requested === 1 ? 1 : 0);
+    if (!Number.isInteger(unit) || unit < 1 || unit > requested) throw new Error("A valid unit number is required.");
+    // Explicit duplicate successful events acknowledge the same cycle without
+    // deducting again. Legacy implicit single-unit calls keep their old errors.
+    if (unitNumber !== undefined && unit <= confirmed && success) return transaction;
+    if (transaction.dispensingStatus !== "dispensing" || unit !== confirmed + 1) throw new Error("No matching active unit cycle.");
+    if (success) {
+      const medicine = medicines.find(item => item.id === transaction.items[0].medicineId);
+      if (!medicine || medicine.stockQuantity < 1) throw new Error("Inventory changed; assistance is required to reconcile the confirmed unit.");
+      medicine.stockQuantity -= 1;
+      transaction.dispensedQuantity = confirmed + 1;
+      if (transaction.dispensedQuantity === requested) {
+        transaction.dispensingStatus = "dispensed";
+        machine.motorStatus = "Idle";
+        machine.sensorStatus = "Preview complete";
+      } else {
+        machine.motorStatus = "Next preview unit cycle pending";
+        machine.sensorStatus = "Waiting for next simulated confirmation";
+      }
+      const slot = machine.slots.find(item => item.slotNumber === transaction.slotNumber);
+      if (slot) slot.lastDispensingAt = nowIso();
+      refreshStatuses();
+      return transaction;
+    }
+    transaction.dispensingStatus = "failed";
+    machine.motorStatus = "Idle";
+    machine.sensorStatus = "Dispensing issue; assistance required";
+    alerts = [{ id: nextAlertId++, kind: "dispensing_failure", title: "Dispensing failed", message: transaction.id + " requires assistance. Confirmed units: " + confirmed + " of " + requested + ". Only confirmed units were deducted.", severity: "danger", createdAt: nowIso(), read: false }, ...alerts];
+    return transaction;
+  },
   inventoryCsv() { refreshStatuses(); const header = "Medicine,Category,Quantity,Price,Expiry,Status,Slot\n"; return header + medicines.map((item) => [item.name, item.category, item.stockQuantity, item.price.toFixed(2), item.expiryDate, item.status, item.slotNumber ?? "Unassigned"].map((value) => `"${String(value).replaceAll('"', '""')}"`).join(",")).join("\n"); },
 };
