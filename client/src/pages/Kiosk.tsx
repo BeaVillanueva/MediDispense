@@ -7,7 +7,7 @@ import {
   LoaderCircle,
   ShoppingBag,
 } from "lucide-react";
-import { trpc } from "@/lib/trpc";
+import { useKioskMedicines } from "@/hooks/useKioskMedicines";
 import {
   type Purchase,
   peso,
@@ -28,10 +28,7 @@ import { CheckoutPanel } from "@/components/kiosk/CheckoutPanel";
 import "./kiosk.css";
 
 export default function Kiosk() {
-  const medicines = trpc.kiosk.medicines.useQuery(undefined, {
-    refetchInterval: 5000,
-    retry: 1,
-  });
+  const medicines = useKioskMedicines();
   const checkout = useKioskCheckout();
   const [view, setView] = useState<"browse" | "details" | "review">("browse");
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -74,8 +71,8 @@ export default function Kiosk() {
     if (view === "details")
       setQuantity(value => Math.max(1, Math.min(value, maximum)));
   }, [maximum, view]);
-  const reset = () => {
-    if (!checkout.reset()) return;
+  const reset = async () => {
+    if (!(await checkout.reset())) return;
     setPurchase(null);
     setSelectedId(null);
     setQuantity(1);
@@ -103,14 +100,7 @@ export default function Kiosk() {
     setView("review");
   };
   async function proceed() {
-    if (
-      checkLock.current ||
-      busy ||
-      transaction ||
-      checkout.error ||
-      !purchase ||
-      !checkout.simulationEnabled
-    )
+    if (checkLock.current || busy || transaction || checkout.error || !purchase)
       return;
     checkLock.current = true;
     setChecking(true);
@@ -184,9 +174,21 @@ export default function Kiosk() {
             {notice}
           </div>
         )}
+        {checkout.recovering && (
+          <div className="kv-message" role="status">
+            Recovering your saved purchase…
+          </div>
+        )}
         {checkout.error && (
           <div className="kv-message kv-error" role="alert">
             {checkout.error}
+            <button
+              className="kv-button kv-secondary"
+              disabled={busy}
+              onClick={() => void checkout.recover()}
+            >
+              Reconnect / check purchase
+            </button>
             {transaction && <strong> Reference: {transaction.id}</strong>}
           </div>
         )}
@@ -194,9 +196,9 @@ export default function Kiosk() {
           <CheckoutPanel
             checkout={checkout}
             onFinish={reset}
-            onBack={() => {
-              if (checkout.reset()) {
-                setView("review");
+            onBack={async () => {
+              if (await checkout.reset()) {
+                setView(purchase ? "review" : "browse");
                 void medicines.refetch();
               }
             }}
@@ -471,10 +473,11 @@ export default function Kiosk() {
                     again.
                   </div>
                 )}
-                {!checkout.simulationEnabled && (
+                {!checkout.preview && (
                   <div className="kv-message" role="status">
-                    The physical coin payment service is not connected. Payment
-                    is currently unavailable.
+                    Your purchase will be saved in the database. Payment waits
+                    for trusted coin acceptor events. Hardware integration is
+                    pending.
                   </div>
                 )}
                 <div className="kv-actions">
@@ -491,11 +494,7 @@ export default function Kiosk() {
                   <button
                     className="kv-button kv-primary"
                     disabled={
-                      busy ||
-                      changed ||
-                      medicines.isError ||
-                      !!checkout.error ||
-                      !checkout.simulationEnabled
+                      busy || changed || medicines.isError || !!checkout.error
                     }
                     onClick={() => void proceed()}
                   >

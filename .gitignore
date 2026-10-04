@@ -13,6 +13,9 @@ build/
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*
+!.env.example
+!.env.sample
 
 # IDE and editor files
 .vscode/
@@ -115,3 +118,10 @@ client/public/__manus__/version.json
 
 # PHP dependencies
 backend/vendor/
+backend/config/local.php
+**/service-account*.json
+**/*serviceAccount*.json
+*.pem
+*.key
+esp32/secrets.h
+tmp-tracked-files.txt

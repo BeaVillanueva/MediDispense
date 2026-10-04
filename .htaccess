@@ -1,0 +1,6 @@
+# Protect source/configuration when this repository is inside XAMPP's web root.
+RewriteEngine On
+RewriteRule ^(?:\.git|\.codex|\.agents)(?:/|$) - [F,L]
+RewriteRule ^\.env(?:\.|$) - [F,L]
+RewriteRule ^(?:backend/(?:config|src|vendor|tests)|database|server|esp32|tmp|docs)(?:/|$) - [F,L]
+Options -Indexes

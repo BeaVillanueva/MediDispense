@@ -1,60 +1,128 @@
-import { useEffect, useRef, useState } from "react";
-import { trpc } from "@/lib/trpc";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Transaction } from "@shared/medidispense";
 import {
-  applyCoinEvent,
+  KioskApiError,
+  kioskApi,
+  newPurchaseSession,
+  purchaseSessionKey,
+  type PurchaseSession,
+} from "@/lib/kioskApi";
+import { kioskDemo } from "@/lib/apiConfig";
+import {
   mayLeavePayment,
   paymentStatus,
   remainingAmount,
-  type CoinBalance,
   type Purchase,
 } from "@/lib/kioskPurchase";
+import { useDemoKioskCheckout } from "./useDemoKioskCheckout";
 
-// Development adapter only. Replace with authenticated backend coin/status events
-// for production; never wire a motor or a production sensor callback into React.
 export function useKioskCheckout() {
-  const simulationEnabled =
-    import.meta.env.DEV && import.meta.env.VITE_KIOSK_SIMULATION !== "false";
-  const create = trpc.kiosk.checkout.useMutation({ retry: false });
-  const payment = trpc.kiosk.verifyPayment.useMutation({ retry: false });
-  const dispense = trpc.kiosk.requestDispense.useMutation({ retry: false });
-  const sensor = trpc.kiosk.verifyDispense.useMutation({ retry: false });
+  const demo = useDemoKioskCheckout();
   const [transaction, setTransaction] = useState<Transaction | null>(null);
-  const [balance, setBalance] = useState<CoinBalance>({
-    insertedAmount: 0,
-    eventIds: [],
-  });
   const [busy, setBusy] = useState(false);
+  const [recovering, setRecovering] = useState(!kioskDemo);
   const [error, setError] = useState<string | null>(null);
-  const locked = useRef(false);
-  const blocked = useRef(false);
+  const session = useRef<PurchaseSession | null>(null);
   const current = useRef<Transaction | null>(null);
-  const coins = useRef(balance);
-  const save = (value: Transaction) => {
+  const locked = useRef(false);
+  const generation = useRef(0);
+  const save = useCallback((value: Transaction) => {
     current.current = value;
     setTransaction(value);
-  };
-  async function run(action: () => Promise<void>) {
-    if (locked.current || blocked.current) return;
+  }, []);
+  const clear = useCallback(() => {
+    generation.current++;
+    localStorage.removeItem(purchaseSessionKey);
+    session.current = null;
+    current.current = null;
+    setTransaction(null);
+    setError(null);
+  }, []);
+  const recover = useCallback(async () => {
+    if (locked.current) return;
     locked.current = true;
-    setBusy(true);
+    setRecovering(true);
     setError(null);
     try {
-      await action();
+      const raw = localStorage.getItem(purchaseSessionKey);
+      if (!raw) {
+        session.current = null;
+        return;
+      }
+      const saved = JSON.parse(raw) as PurchaseSession;
+      session.current = saved;
+      let value: Transaction;
+      try {
+        value = await kioskApi.recover(saved);
+      } catch (e) {
+        if (e instanceof KioskApiError && e.code === "TRANSACTION_NOT_FOUND")
+          value = await kioskApi.checkout(saved);
+        else throw e;
+      }
+      save(value);
+      setError(null);
     } catch {
-      blocked.current = true;
       setError(
-        "We could not confirm the last step. Please contact pharmacy staff. Do not insert more coins or refresh this page. No refund has been issued."
+        "Unable to recover your purchase. Do not insert coins. Reconnect to check its status or ask pharmacy staff for help."
       );
     } finally {
       locked.current = false;
-      setBusy(false);
+      setRecovering(false);
     }
-  }
+  }, [save]);
+  useEffect(() => {
+    if (!kioskDemo) void recover();
+  }, [recover]);
   useEffect(() => {
     if (
+      kioskDemo ||
+      !transaction?.databaseId ||
+      !session.current ||
+      transaction.dispensingStatus === "dispensed" ||
+      transaction.paymentStatus === "cancelled"
+    )
+      return;
+    let disposed = false;
+    let pending = false;
+    const revision = generation.current;
+    const poll = async () => {
+      if (pending || locked.current || !session.current) return;
+      pending = true;
+      try {
+        const value = await kioskApi.get(
+          transaction.databaseId!,
+          session.current
+        );
+        if (!disposed && revision === generation.current) {
+          save(value);
+          setError(null);
+        }
+      } catch {
+        if (!disposed)
+          setError(
+            "Connection interrupted. Do not insert more coins. Your purchase is saved; reconnecting to check its status…"
+          );
+      } finally {
+        pending = false;
+      }
+    };
+    const timer = window.setInterval(poll, 1500);
+    return () => {
+      disposed = true;
+      window.clearInterval(timer);
+    };
+  }, [
+    transaction?.databaseId,
+    transaction?.dispensingStatus,
+    transaction?.paymentStatus,
+    save,
+  ]);
+  useEffect(() => {
+    if (
+      kioskDemo ||
       !transaction ||
-      paymentStatus(transaction, balance.insertedAmount) === "SUCCESS"
+      transaction.dispensingStatus === "dispensed" ||
+      transaction.paymentStatus === "cancelled"
     )
       return;
     const warn = (event: BeforeUnloadEvent) => {
@@ -63,104 +131,93 @@ export function useKioskCheckout() {
     };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [transaction, balance.insertedAmount]);
-  const reset = () => {
-    if (locked.current || blocked.current) return false;
-    if (
-      !mayLeavePayment(current.current, coins.current.insertedAmount) &&
-      paymentStatus(current.current, coins.current.insertedAmount) !== "SUCCESS"
-    )
+  }, [transaction]);
+  const reset = async () => {
+    if (locked.current || recovering || error) return false;
+    const t = current.current;
+    if (!t) {
+      clear();
+      return true;
+    }
+    if (t.dispensingStatus === "dispensed" || t.paymentStatus === "cancelled") {
+      clear();
+      return true;
+    }
+    if (!mayLeavePayment(t, t.amountPaid) || !session.current || !t.databaseId)
       return false;
-    current.current = null;
-    coins.current = { insertedAmount: 0, eventIds: [] };
-    setTransaction(null);
-    setBalance(coins.current);
-    setError(null);
-    return true;
+    locked.current = true;
+    setBusy(true);
+    try {
+      await kioskApi.cancel(t.databaseId, session.current);
+      clear();
+      return true;
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Cancellation could not be confirmed."
+      );
+      return false;
+    } finally {
+      locked.current = false;
+      setBusy(false);
+    }
   };
+  if (kioskDemo)
+    return {
+      ...demo,
+      recovering: false,
+      recover: async () => {},
+      reset: async () => demo.reset(),
+    };
   return {
-    preview: true as const,
-    simulationEnabled,
+    preview: false,
+    simulationEnabled: false,
     transaction,
-    busy,
+    busy: busy || recovering,
+    recovering,
     error,
-    insertedAmount: balance.insertedAmount,
+    recover,
+    insertedAmount: transaction?.amountPaid ?? 0,
     remainingAmount: remainingAmount(
       transaction?.total ?? 0,
-      balance.insertedAmount
+      transaction?.amountPaid ?? 0
     ),
-    paymentStatus: paymentStatus(transaction, balance.insertedAmount),
+    paymentStatus: paymentStatus(transaction, transaction?.amountPaid ?? 0),
     canGoBack:
-      !busy && !error && mayLeavePayment(transaction, balance.insertedAmount),
-    start: (purchase: Purchase) =>
-      run(async () => {
-        if (current.current || !simulationEnabled) return;
-        const created = await create.mutateAsync({
-          items: [
-            {
-              medicineId: purchase.selectedMedicine.id,
-              quantity: purchase.quantity,
-            },
-          ],
-        });
-        save(created);
-        if (created.total === 0) {
-          save(
-            await payment.mutateAsync({
-              transactionId: created.id,
-              amountPaid: 0,
-            })
-          );
-          save(await dispense.mutateAsync({ transactionId: created.id }));
-        }
-      }),
-    // This is a simulation entry point, not proof of real payment. Production
-    // must ingest a backend-verified cumulative balance and transaction state.
-    simulateCoin: (amount: number) => {
-      const value = current.current;
-      if (
-        !simulationEnabled ||
-        !value ||
-        locked.current ||
-        blocked.current ||
-        value.paymentStatus !== "pending" ||
-        coins.current.insertedAmount >= value.total
-      )
+      !busy &&
+      !recovering &&
+      !error &&
+      (transaction?.paymentStatus === "cancelled" ||
+        mayLeavePayment(transaction, transaction?.amountPaid ?? 0)),
+    start: async (purchase: Purchase) => {
+      if (locked.current || session.current || recovering || current.current)
         return;
-      const next = applyCoinEvent(coins.current, {
-        id: crypto.randomUUID(),
-        amount,
-      });
-      coins.current = next;
-      setBalance(next);
-      if (next.insertedAmount >= value.total)
-        void run(async () => {
-          save(
-            await payment.mutateAsync({
-              transactionId: value.id,
-              amountPaid: next.insertedAmount,
-            })
-          );
-          save(await dispense.mutateAsync({ transactionId: value.id }));
-        });
-    },
-    confirmDemoUnit: (unitNumber: number, success: boolean) =>
-      run(async () => {
-        const value = current.current;
-        if (
-          !simulationEnabled ||
-          !value ||
-          value.dispensingStatus !== "dispensing"
-        )
-          return;
-        save(
-          await sensor.mutateAsync({
-            transactionId: value.id,
-            unitNumber,
-            success,
-          })
+      locked.current = true;
+      setBusy(true);
+      setError(null);
+      try {
+        const next = newPurchaseSession(
+          purchase.selectedMedicine.id,
+          purchase.quantity
         );
-      }),
+        localStorage.setItem(purchaseSessionKey, JSON.stringify(next));
+        session.current = next;
+        save(await kioskApi.checkout(next));
+      } catch (e) {
+        if (e instanceof KioskApiError && [400, 409, 422].includes(e.status)) {
+          clear();
+          setError(e.message);
+        } else
+          setError(
+            "Checkout response was interrupted. Reconnect to recover the same purchase; do not insert coins."
+          );
+      } finally {
+        locked.current = false;
+        setBusy(false);
+      }
+    },
+    // Intentionally inert: production customers cannot produce payment/sensor events.
+    simulateCoin: (_amount: number) => {},
+    confirmDemoUnit: async (_unit: number, _success: boolean) => {},
     reset,
   };
 }

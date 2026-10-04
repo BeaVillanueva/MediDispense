@@ -15,7 +15,7 @@ export const firebaseConfigured = Object.values(firebaseConfig).every(Boolean);
 export const firebaseApp = firebaseConfigured ? (getApps().length ? getApp() : initializeApp(firebaseConfig)) : null;
 export const firebaseAuth = firebaseApp ? getAuth(firebaseApp) : null;
 export const firebaseStorage = firebaseApp ? getStorage(firebaseApp) : null;
-export const apiBaseUrl = ((import.meta.env.VITE_API_BASE_URL as string | undefined) ?? "").replace(/\/$/, "");
+export { apiBaseUrl } from "./lib/apiConfig";
 
 export async function uploadEmployeeProfilePhoto(file: File, uid: string) {
   if (!firebaseStorage) throw new Error("Firebase Storage is not configured.");

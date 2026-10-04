@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/Http/Response.php';
+require_once __DIR__ . '/../src/KioskService.php';
 require_once __DIR__ . '/../src/Auth/FirebaseTokenVerifier.php';
 
 $config = require __DIR__ . '/../config/config.php';
@@ -26,13 +27,16 @@ if ($origin === '' || in_array($origin, $config['cors_origins'], true)) {
     header('Access-Control-Allow-Origin: ' . ($origin ?: '*'));
     header('Vary: Origin');
 }
-header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Hardware-Key, X-MediDispense-RBAC');
+header('Access-Control-Allow-Headers: Content-Type, Authorization, X-Hardware-Key, X-MediDispense-RBAC, X-Kiosk-Token');
+if ($origin !== '' && !in_array($origin, $config['cors_origins'], true)) Response::error('Origin is not allowed.',403);
+header('Cache-Control: no-store');
 header('Access-Control-Allow-Credentials: true');
 header('Access-Control-Allow-Methods: GET, POST, PATCH, PUT, DELETE, OPTIONS');
 if ($method === 'OPTIONS') { http_response_code(204); exit; }
 
 try {
     $db = Database::connect($config);
+    $kiosk = new KioskService($db, $config['machine_code']);
     $verifier = new FirebaseTokenVerifier($config['firebase']['project_id']);
     $claims = null;
     $profile = null;
@@ -80,7 +84,7 @@ try {
     };
     $hardwareAuth = function () use ($config): void {
         $received = $_SERVER['HTTP_X_HARDWARE_KEY'] ?? '';
-        if (!hash_equals((string)$config['hardware']['api_key'], (string)$received)) Response::error('Invalid hardware key.', 401);
+        if (strlen((string)$config['hardware']['api_key']) < 32 || !hash_equals((string)$config['hardware']['api_key'], (string)$received)) Response::error('Invalid hardware key.', 401);
     };
     $log = function (string $action, string $description, ?int $actorId = null, string $actorType = 'system', array $metadata = []) use ($db): void {
         $stmt = $db->prepare('INSERT INTO activity_logs (actor_user_id, actor_type, action, description, ip_address, device_information, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)');
@@ -94,16 +98,7 @@ try {
         if ($quantity <= $minimum) return 'low_stock';
         return 'in_stock';
     };
-    $medicineQuery = function (bool $available = false) use ($db, $medicineStatus): array {
-        $stmt = $db->query('SELECT m.*, c.name AS category_name, COALESCE(i.quantity,0) AS stock_quantity, s.slot_number, s.id AS slot_id FROM medicines m JOIN medicine_categories c ON c.id = m.category_id LEFT JOIN inventory i ON i.medicine_id = m.id LEFT JOIN machine_slots s ON s.medicine_id = m.id ORDER BY m.name');
-        $rows = [];
-        foreach ($stmt->fetchAll() as $row) {
-            $status = $medicineStatus((int)$row['stock_quantity'], (int)$row['minimum_stock_level'], $row['expiry_date']);
-            if ($available && (!$row['is_enabled'] || $row['slot_number'] === null || (int)$row['stock_quantity'] <= 0 || $status === 'expired')) continue;
-            $rows[] = ['id' => (int)$row['id'], 'name' => $row['name'], 'genericName' => $row['generic_name'], 'category' => $row['category_name'], 'description' => $row['description'], 'dosage' => $row['dosage_information'], 'instructions' => $row['usage_instructions'], 'stockQuantity' => (int)$row['stock_quantity'], 'minimumStockLevel' => (int)$row['minimum_stock_level'], 'price' => (float)$row['unit_price'], 'expiryDate' => $row['expiry_date'], 'imageUrl' => $row['image_url'], 'slotNumber' => $row['slot_number'] ? (int)$row['slot_number'] : null, 'status' => $status, 'enabled' => (bool)$row['is_enabled'], 'dateAdded' => $row['created_at'], 'updatedAt' => $row['updated_at']];
-        }
-        return $rows;
-    };
+    $medicineQuery = fn(bool $available=false): array => $kiosk->medicines($available);
 
     if ($path === '/api/health' && $method === 'GET') Response::json(['status' => 'ok', 'service' => 'MediDispense PHP API', 'time' => gmdate('c')]);
 
@@ -179,7 +174,11 @@ try {
         $stmt = $db->prepare("SELECT COUNT(*) AS count, COALESCE(SUM(total_amount),0) AS sales FROM transactions WHERE DATE(created_at)=? AND payment_status='successful' AND dispensing_status='dispensed'"); $stmt->execute([$today]); $sales = $stmt->fetch();
         $summary['todaysTransactions'] = (int)$sales['count']; $summary['todaysSales'] = (float)$sales['sales'];
         $summary['pendingDispensing'] = (int)$db->query("SELECT COUNT(*) FROM transactions WHERE dispensing_status IN ('pending','dispensing')")->fetchColumn();
-        $summary['salesTrend'] = [['label'=>'Mon','value'=>820],['label'=>'Tue','value'=>1040],['label'=>'Wed','value'=>760],['label'=>'Thu','value'=>1320],['label'=>'Fri','value'=>1180],['label'=>'Sat','value'=>1640],['label'=>'Sun','value'=>980]];
+        $summary['salesTrend']=[];
+        $trend=$db->prepare("SELECT COALESCE(SUM(total_amount),0) FROM transactions WHERE DATE(created_at)=? AND payment_status='successful' AND dispensing_status='dispensed'");
+        for($day=6;$day>=0;$day--){$date=date('Y-m-d',strtotime('-'.$day.' days'));$trend->execute([$date]);$summary['salesTrend'][]=['label'=>date('D',strtotime($date)),'value'=>(float)$trend->fetchColumn()];}
+        $mix=[];foreach($rows as $row) $mix[$row['category']]=($mix[$row['category']]??0)+$row['stockQuantity'];
+        $summary['categoryMix']=[];foreach($mix as $label=>$value)$summary['categoryMix'][]=['label'=>$label,'value'=>$value];
         Response::json($summary);
     }
     if ($path === '/api/users' && $method === 'GET') {
@@ -232,50 +231,53 @@ try {
     if (preg_match('#^/api/medicines/(\d+)$#', $path, $matches) && in_array($method, ['PATCH','PUT','DELETE'], true)) {
         $actor = $auth(['super_admin','admin']); $medicineId=(int)$matches[1];
         if ($method === 'DELETE') { $db->prepare('UPDATE medicines SET is_enabled=0 WHERE id=?')->execute([$medicineId]); $log('medicine_archived','Medicine archived from vending catalog.',(int)$actor['id'],'user',['medicine_id'=>$medicineId]); Response::json(['success'=>true]); }
-        $body=requestBody(); $allowed=['name'=>'name','generic_name'=>'generic_name','description'=>'description','dosage_information'=>'dosage_information','usage_instructions'=>'usage_instructions','unit_price'=>'unit_price','expiry_date'=>'expiry_date','minimum_stock_level'=>'minimum_stock_level','is_enabled'=>'is_enabled','image_url'=>'image_url']; $fields=[];$values=[]; foreach($allowed as $key=>$column) if(array_key_exists($key,$body)){ $fields[]="$column=?";$values[]=$body[$key]; } if(!$fields) Response::error('No editable medicine fields supplied.',422); $lookup=$db->prepare('SELECT name FROM medicines WHERE id=?'); $lookup->execute([$medicineId]); $medicineName=$lookup->fetchColumn(); if($medicineName===false) Response::error('Medicine record not found.',404); $changedFields=array_keys(array_intersect_key($body,$allowed)); $values[]=$medicineId; $db->prepare('UPDATE medicines SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('medicine_updated',$medicineName.' updated: '.implode(', ',$changedFields).'.',(int)$actor['id'],'user',['medicine_id'=>$medicineId,'medicine_name'=>$medicineName,'fields'=>$changedFields]); Response::json(['success'=>true]);
+        $body=requestBody(); if(array_key_exists('unit_price',$body) && (!is_numeric($body['unit_price']) || (float)$body['unit_price']<0)) throw new KioskError('INVALID_PRICE','Price must be non-negative.',422); $allowed=['name'=>'name','generic_name'=>'generic_name','description'=>'description','dosage_information'=>'dosage_information','usage_instructions'=>'usage_instructions','unit_price'=>'unit_price','expiry_date'=>'expiry_date','minimum_stock_level'=>'minimum_stock_level','is_enabled'=>'is_enabled','image_url'=>'image_url']; $fields=[];$values=[]; foreach($allowed as $key=>$column) if(array_key_exists($key,$body)){ $fields[]="$column=?";$values[]=$body[$key]; } if(!$fields) Response::error('No editable medicine fields supplied.',422); $lookup=$db->prepare('SELECT name FROM medicines WHERE id=?'); $lookup->execute([$medicineId]); $medicineName=$lookup->fetchColumn(); if($medicineName===false) Response::error('Medicine record not found.',404); $changedFields=array_keys(array_intersect_key($body,$allowed)); $values[]=$medicineId; $db->prepare('UPDATE medicines SET '.implode(',',$fields).' WHERE id=?')->execute($values); $log('medicine_updated',$medicineName.' updated: '.implode(', ',$changedFields).'.',(int)$actor['id'],'user',['medicine_id'=>$medicineId,'medicine_name'=>$medicineName,'fields'=>$changedFields]); Response::json(['success'=>true]);
     }
 
     if ($path === '/api/medicines' && $method === 'POST') {
         $actor = $auth(['super_admin','admin']); $body = requestBody();
+        if (!isset($body['category_id']) && isset($body['category_name'])) {
+            $category=$db->prepare('SELECT id FROM medicine_categories WHERE name=? AND is_active=1');
+            $category->execute([$body['category_name']]); $body['category_id']=$category->fetchColumn();
+            if (!$body['category_id']) throw new KioskError('INVALID_CATEGORY','Choose an existing active category.',422);
+        }
+        if (!isset($body['unit_price'],$body['stock_quantity']) || !is_numeric($body['unit_price']) || (float)$body['unit_price']<0 || !is_int($body['stock_quantity']) || $body['stock_quantity']<0) throw new KioskError('INVALID_MEDICINE','Price and stock must be non-negative.',422);
         foreach (['name','generic_name','category_id','description','dosage_information','usage_instructions','unit_price','expiry_date','minimum_stock_level','stock_quantity'] as $field) if (!array_key_exists($field, $body)) Response::error("Missing field: {$field}");
         $db->beginTransaction();
         $stmt = $db->prepare('INSERT INTO medicines (category_id,name,generic_name,description,dosage_information,usage_instructions,image_url,unit_price,expiry_date,minimum_stock_level,is_enabled,created_by) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)');
         $stmt->execute([(int)$body['category_id'], $body['name'], $body['generic_name'], $body['description'], $body['dosage_information'], $body['usage_instructions'], $body['image_url'] ?? null, $body['unit_price'], $body['expiry_date'], $body['minimum_stock_level'], (int)($body['is_enabled'] ?? 1), $actor['id']]);
-        $medicineId = (int)$db->lastInsertId(); $stock = $db->prepare('INSERT INTO inventory (medicine_id,quantity,last_counted_at) VALUES (?,?,NOW())'); $stock->execute([$medicineId, $body['stock_quantity']]); $db->commit(); $log('medicine_created', 'Added '.$body['name'].' to the catalog with initial stock of '.(int)$body['stock_quantity'].'.', (int)$actor['id'], 'user', ['medicine_id' => $medicineId, 'medicine_name' => $body['name'], 'initial_stock' => (int)$body['stock_quantity']]); Response::json(['id' => $medicineId], 201);
+        $medicineId = (int)$db->lastInsertId(); $stock = $db->prepare('INSERT INTO inventory (medicine_id,quantity,last_counted_at) VALUES (?,?,NOW())'); $stock->execute([$medicineId, $body['stock_quantity']]); if (isset($body['slot_number'])) {
+            $slot=$db->prepare('SELECT s.* FROM machine_slots s JOIN machines m ON m.id=s.machine_id WHERE s.slot_number=? AND m.machine_code=? FOR UPDATE');$slot->execute([(int)$body['slot_number'],$config['machine_code']]);$assigned=$slot->fetch();
+            if(!$assigned || $assigned['medicine_id']!==null) throw new KioskError('SLOT_UNAVAILABLE','This slot is missing or already assigned.');
+            $db->prepare("UPDATE machine_slots SET medicine_id=?,slot_status='ready' WHERE id=?")->execute([$medicineId,$assigned['id']]);
+        }
+        $db->commit(); $log('medicine_created', 'Added '.$body['name'].' to the catalog with initial stock of '.(int)$body['stock_quantity'].'.', (int)$actor['id'], 'user', ['medicine_id' => $medicineId, 'medicine_name' => $body['name'], 'initial_stock' => (int)$body['stock_quantity']]); Response::json(['id' => $medicineId], 201);
     }
 
     if ($path === '/api/inventory/adjust' && $method === 'PATCH') {
         $actor = $auth(['super_admin','admin']); $body = requestBody(); $medicineId = (int)($body['medicine_id'] ?? 0); $delta = (int)($body['delta'] ?? 0); if ($medicineId < 1 || $delta === 0) Response::error('medicine_id and a non-zero delta are required.');
-        $db->beginTransaction(); $stmt = $db->prepare('SELECT i.quantity,m.name FROM inventory i JOIN medicines m ON m.id=i.medicine_id WHERE i.medicine_id=? FOR UPDATE'); $stmt->execute([$medicineId]); $stock = $stmt->fetch(); if (!$stock) Response::error('Inventory record not found.', 404); $previous = (int)$stock['quantity']; $new = max(0, $previous + $delta); $reason = trim((string)($body['reason'] ?? 'Manual adjustment')); $db->prepare('UPDATE inventory SET quantity=?,last_counted_at=NOW() WHERE medicine_id=?')->execute([$new, $medicineId]); $db->prepare("INSERT INTO stock_movements (medicine_id,previous_quantity,new_quantity,change_quantity,change_type,reason,actor_user_id) VALUES (?,?,?,?,?,?,?)")->execute([$medicineId,$previous,$new,$delta,$delta > 0 ? 'manual_addition' : 'adjustment',$reason,$actor['id']]); $db->commit(); $changeVerb = $new >= $previous ? 'increased' : 'decreased'; $log('stock_adjusted', $stock['name'].' stock '.$changeVerb.' from '.$previous.' to '.$new.'. Reason: '.$reason, (int)$actor['id'], 'user', ['medicine_id'=>$medicineId,'medicine_name'=>$stock['name'],'change'=>$delta,'previous'=>$previous,'new'=>$new,'reason'=>$reason]); Response::json(['medicine_id'=>$medicineId,'previous_quantity'=>$previous,'new_quantity'=>$new]);
+        $db->beginTransaction(); $stmt = $db->prepare('SELECT i.quantity,i.reserved_quantity,m.name FROM inventory i JOIN medicines m ON m.id=i.medicine_id WHERE i.medicine_id=? FOR UPDATE'); $stmt->execute([$medicineId]); $stock = $stmt->fetch(); if (!$stock) Response::error('Inventory record not found.', 404); $previous = (int)$stock['quantity']; $new = $previous + $delta; if ($new < (int)$stock['reserved_quantity']) throw new KioskError('STOCK_RESERVED','Stock cannot be reduced below quantities reserved for active purchases.'); $reason = trim((string)($body['reason'] ?? 'Manual adjustment')); $db->prepare('UPDATE inventory SET quantity=?,last_counted_at=NOW() WHERE medicine_id=?')->execute([$new, $medicineId]); $db->prepare("INSERT INTO stock_movements (medicine_id,previous_quantity,new_quantity,change_quantity,change_type,reason,actor_user_id) VALUES (?,?,?,?,?,?,?)")->execute([$medicineId,$previous,$new,$delta,$delta > 0 ? 'manual_addition' : 'adjustment',$reason,$actor['id']]); $db->commit(); $changeVerb = $new >= $previous ? 'increased' : 'decreased'; $log('stock_adjusted', $stock['name'].' stock '.$changeVerb.' from '.$previous.' to '.$new.'. Reason: '.$reason, (int)$actor['id'], 'user', ['medicine_id'=>$medicineId,'medicine_name'=>$stock['name'],'change'=>$delta,'previous'=>$previous,'new'=>$new,'reason'=>$reason]); Response::json(['medicine_id'=>$medicineId,'previous_quantity'=>$previous,'new_quantity'=>$new]);
     }
 
-    if ($path === '/api/transactions/checkout' && $method === 'POST') {
-        $body = requestBody(); $items = $body['items'] ?? []; if (!is_array($items) || count($items) < 1) Response::error('At least one item is required.');
-        $db->beginTransaction(); $subtotal = 0; $resolved = [];
-        foreach ($items as $item) { $stmt = $db->prepare('SELECT m.id,m.name,m.unit_price,m.is_enabled,m.expiry_date,COALESCE(i.quantity,0) AS quantity,s.id AS slot_id,s.slot_number FROM medicines m LEFT JOIN inventory i ON i.medicine_id=m.id LEFT JOIN machine_slots s ON s.medicine_id=m.id WHERE m.id=? FOR UPDATE'); $stmt->execute([(int)$item['medicine_id']]); $medicine = $stmt->fetch(); $qty = (int)($item['quantity'] ?? 1); if (!$medicine || !$medicine['is_enabled'] || $qty < 1 || (int)$medicine['quantity'] < $qty || $medicine['expiry_date'] < date('Y-m-d')) { $db->rollBack(); Response::error(($medicine['name'] ?? 'Medicine') . ' is no longer available.', 409); } $line = (float)$medicine['unit_price'] * $qty; $subtotal += $line; $resolved[] = [$medicine,$qty,$line]; }
-        $code = 'TXN-' . strtoupper(bin2hex(random_bytes(3))); $stmt = $db->prepare("INSERT INTO transactions (transaction_code,currency,subtotal,total_amount,payment_status,dispensing_status) VALUES (?, 'PHP', ?, ?, 'pending', 'pending')"); $stmt->execute([$code,$subtotal,$subtotal]); $transactionId = (int)$db->lastInsertId();
-        foreach ($resolved as [$medicine,$qty,$line]) { $db->prepare('INSERT INTO transaction_items (transaction_id,medicine_id,slot_id,medicine_name_snapshot,unit_price_snapshot,quantity,subtotal) VALUES (?,?,?,?,?,?,?)')->execute([$transactionId,$medicine['id'],$medicine['slot_id'],$medicine['name'],$medicine['unit_price'],$qty,$line]); }
-        $db->prepare("INSERT INTO payments (transaction_id,amount_due,status) VALUES (?,?,'pending')")->execute([$transactionId,$subtotal]); $db->commit(); Response::json(['transaction_id'=>$transactionId,'transaction_code'=>$code,'total'=>$subtotal,'payment_status'=>'pending','dispensing_status'=>'pending'], 201);
-    }
-
+    $kioskToken = $_SERVER['HTTP_X_KIOSK_TOKEN'] ?? '';
+    if ($path === '/api/transactions/checkout' && $method === 'POST') Response::json($kiosk->checkout(requestBody(), $kioskToken),201);
+    if ($path === '/api/transactions/recover' && $method === 'GET') Response::json($kiosk->recover((string)($_GET['request_id'] ?? ''),$kioskToken));
+    if (preg_match('#^/api/transactions/(\d+)$#',$path,$matches) && $method === 'GET') Response::json($kiosk->get((int)$matches[1],$kioskToken));
+    if (preg_match('#^/api/transactions/(\d+)/cancel$#',$path,$matches) && $method === 'POST') Response::json($kiosk->cancel((int)$matches[1],$kioskToken));
     if ($path === '/api/payments/verify' && $method === 'POST') {
-        $body = requestBody(); $transactionId = (int)($body['transaction_id'] ?? 0); $amount = (float)($body['amount_inserted'] ?? 0); if ($transactionId < 1) Response::error('transaction_id is required.');
-        $db->beginTransaction(); $stmt = $db->prepare('SELECT * FROM transactions WHERE id=? FOR UPDATE'); $stmt->execute([$transactionId]); $transaction = $stmt->fetch(); if (!$transaction) Response::error('Transaction not found.',404); if ($amount < (float)$transaction['total_amount']) Response::error('Payment is insufficient.',409);
-        $db->prepare("UPDATE payments SET amount_inserted=?,status='successful',verified_at=NOW() WHERE transaction_id=?")->execute([$amount,$transactionId]); $db->prepare("UPDATE transactions SET amount_paid=?,change_amount=?,payment_status='successful',dispensing_status='pending' WHERE id=?")->execute([$amount,$amount-(float)$transaction['total_amount'],$transactionId]); $items = $db->prepare('SELECT ti.*,s.machine_id,s.id AS slot_id,s.slot_number FROM transaction_items ti LEFT JOIN machine_slots s ON s.id=ti.slot_id WHERE ti.transaction_id=?'); $items->execute([$transactionId]); $first = $items->fetch(); if (!$first || !$first['machine_id'] || !$first['slot_id']) Response::error('No configured machine slot is assigned.',409); $command = 'DISP-' . strtoupper(bin2hex(random_bytes(4))); $payload = json_encode(['transaction_id'=>$transactionId,'slot_number'=>(int)$first['slot_number'],'motor_id'=>'MOTOR-'.$first['slot_number'],'quantity'=>(int)$first['quantity']]); $db->prepare("INSERT INTO dispensing_requests (transaction_id,machine_id,slot_id,quantity,request_status,command_reference,command_payload) VALUES (?,?,?,?,'queued',?,?)")->execute([$transactionId,$first['machine_id'],$first['slot_id'],$first['quantity'],$command,$payload]); $requestId=(int)$db->lastInsertId(); $db->prepare("UPDATE transactions SET dispensing_status='dispensing' WHERE id=?")->execute([$transactionId]); $db->commit(); Response::json(['transaction_id'=>$transactionId,'dispensing_request_id'=>$requestId,'command_reference'=>$command,'payment_status'=>'successful','amount_paid'=>$amount,'change'=>$amount-(float)$transaction['total_amount']]);
+        $hardwareAuth(); $body=requestBody();
+        Response::json($kiosk->coin((int)($body['transaction_id'] ?? 0),(string)($body['event_id'] ?? ''),$body['coin_amount'] ?? null));
     }
-
-    if (preg_match('#^/api/dispense/(\d+)$#', $path, $matches) && $method === 'POST') {
-        $body = requestBody(); $hardware = $_SERVER['HTTP_X_HARDWARE_KEY'] ?? ''; if ($hardware === '') $auth(['super_admin','admin','staff']); else $hardwareAuth(); $requestId=(int)$matches[1]; $db->prepare("UPDATE dispensing_requests SET request_status='sent',sent_at=NOW() WHERE id=? AND request_status IN ('queued','sent')")->execute([$requestId]); $log('dispense_command_sent','Dispense command sent to ESP32.',null,$hardware !== '' ? 'hardware' : 'user',['request_id'=>$requestId]); Response::json(['dispensing_request_id'=>$requestId,'status'=>'sent']);
-    }
-    if (preg_match('#^/api/dispense/(\d+)/sensor$#', $path, $matches) && $method === 'POST') {
-        $body = requestBody(); $hardwareAuth(); $requestId=(int)$matches[1]; $success=(bool)($body['success'] ?? false); $db->beginTransaction(); $stmt=$db->prepare('SELECT dr.*,t.transaction_code,ti.medicine_id,ti.quantity,ti.slot_id FROM dispensing_requests dr JOIN transactions t ON t.id=dr.transaction_id JOIN transaction_items ti ON ti.transaction_id=t.id WHERE dr.id=? FOR UPDATE'); $stmt->execute([$requestId]); $request=$stmt->fetch(); if (!$request) Response::error('Dispensing request not found.',404); $event=$success?'dispensed_successfully':'dispensing_failed'; $db->prepare("INSERT INTO dispensing_logs (dispensing_request_id,event_type,sensor_confirmed,motor_status,sensor_payload) VALUES (?,?,?,?,?)")->execute([$requestId,$event,$success?1:0,$body['motor_status']??null,json_encode($body)]);
-        if ($success) { $stock=$db->prepare('SELECT quantity FROM inventory WHERE medicine_id=? FOR UPDATE'); $stock->execute([$request['medicine_id']]); $previous=(int)$stock->fetchColumn(); $new=max(0,$previous-(int)$request['quantity']); if ($previous < (int)$request['quantity']) { $db->rollBack(); Response::error('Inventory changed before sensor confirmation.',409); } $db->prepare('UPDATE inventory SET quantity=?,last_counted_at=NOW() WHERE medicine_id=?')->execute([$new,$request['medicine_id']]); $db->prepare("INSERT INTO stock_movements (medicine_id,transaction_id,dispensing_request_id,previous_quantity,new_quantity,change_quantity,change_type,reason) VALUES (?,?,?,?,?,?,?,?)")->execute([$request['medicine_id'],$request['transaction_id'],$requestId,$previous,$new,-(int)$request['quantity'],'successful_dispensing','Sensor-confirmed dispensing']); $db->prepare("UPDATE dispensing_requests SET request_status='success',completed_at=NOW() WHERE id=?")->execute([$requestId]); $db->prepare("UPDATE transactions SET dispensing_status='dispensed' WHERE id=?")->execute([$request['transaction_id']]); } else { $db->prepare("UPDATE dispensing_requests SET request_status='failed',completed_at=NOW() WHERE id=?")->execute([$requestId]); $db->prepare("UPDATE transactions SET dispensing_status='failed' WHERE id=?")->execute([$request['transaction_id']]); $db->prepare("INSERT INTO notifications (notification_type,title,message,severity,transaction_id) VALUES ('dispensing_failure','Dispensing failed',?,'danger',?)")->execute(['Transaction '.$request['transaction_code'].' failed sensor verification. Stock was not deducted.',$request['transaction_id']]); }
-        $db->commit(); Response::json(['dispensing_request_id'=>$requestId,'transaction_code'=>$request['transaction_code'],'sensor_confirmed'=>$success,'inventory_deducted'=>$success,'status'=>$success?'dispensed':'failed']);
+    if (preg_match('#^/api/dispense/(\d+)$#',$path,$matches) && $method === 'POST') { $hardwareAuth(); Response::json($kiosk->sent((int)$matches[1])); }
+    if (preg_match('#^/api/dispense/(\d+)/sensor$#',$path,$matches) && $method === 'POST') {
+        $hardwareAuth(); $body=requestBody();
+        if(!isset($body['unit_number'],$body['success']) || !is_int($body['unit_number']) || !is_bool($body['success'])) throw new KioskError('INVALID_SENSOR_EVENT','A unit number and boolean result are required.',422);
+        Response::json($kiosk->sensor((int)$matches[1],$body['unit_number'],$body['success']));
     }
 
     if ($path === '/api/machine/heartbeat' && $method === 'POST') { $hardwareAuth(); $body=requestBody(); $machineId=(int)($body['machine_id'] ?? 1); $stmt=$db->prepare("UPDATE machine_status SET connection_status='online',esp32_status=?,motor_status=?,sensor_status=?,coin_acceptor_status=?,last_communication_at=NOW(),last_payload=? WHERE machine_id=?"); $stmt->execute([$body['esp32_status']??'Ready',$body['motor_status']??'Idle',$body['sensor_status']??'Monitoring',$body['coin_acceptor_status']??'Ready',json_encode($body),$machineId]); Response::json(['machine_id'=>$machineId,'online'=>true,'last_communication_at'=>gmdate('c')]); }
     if ($path === '/api/machine/status' && $method === 'GET') { $auth(['super_admin','admin','staff']); $machine=$db->query('SELECT m.*,ms.* FROM machines m LEFT JOIN machine_status ms ON ms.machine_id=m.id ORDER BY m.id LIMIT 1')->fetch(); $slots=$db->query('SELECT s.*,m.name AS medicine_name,COALESCE(i.quantity,0) AS quantity FROM machine_slots s LEFT JOIN medicines m ON m.id=s.medicine_id LEFT JOIN inventory i ON i.medicine_id=s.medicine_id ORDER BY s.slot_number')->fetchAll(); Response::json(['machine'=>$machine,'slots'=>$slots]); }
-    if ($path === '/api/transactions' && $method === 'GET') { $actor=$auth(['super_admin','admin','staff']); $log('transactions_viewed','Employee viewed transaction records.',(int)$actor['id'],'user'); $rows=$db->query('SELECT t.*,GROUP_CONCAT(ti.medicine_name_snapshot SEPARATOR ", ") AS medicines FROM transactions t LEFT JOIN transaction_items ti ON ti.transaction_id=t.id GROUP BY t.id ORDER BY t.created_at DESC LIMIT 250')->fetchAll(); Response::json($rows); }
+    if ($path === '/api/transactions' && $method === 'GET') { $actor=$auth(['super_admin','admin','staff']); $log('transactions_viewed','Employee viewed transaction records.',(int)$actor['id'],'user'); $rows=$db->query('SELECT t.*,GROUP_CONCAT(ti.medicine_name_snapshot SEPARATOR ", ") AS medicines FROM transactions t LEFT JOIN transaction_items ti ON ti.transaction_id=t.id GROUP BY t.id ORDER BY t.created_at DESC LIMIT 250')->fetchAll(); if(($_GET['format']??'')==='client') $rows=array_map(fn($row)=>$kiosk->snapshot((int)$row['id']),$rows); Response::json($rows); }
     if ($path === '/api/notifications' && $method === 'GET') { $auth(['super_admin','admin','staff']); Response::json($db->query('SELECT * FROM notifications ORDER BY created_at DESC LIMIT 100')->fetchAll()); }
     if ($path === '/api/logs' && $method === 'GET') { $auth(['super_admin']); Response::json($db->query('SELECT al.*,u.display_name,u.email FROM activity_logs al LEFT JOIN users u ON u.id=al.actor_user_id ORDER BY al.created_at DESC LIMIT 500')->fetchAll()); }
     if ($path === '/api/reports/basic' && $method === 'GET') {
@@ -287,8 +289,11 @@ try {
     if ($path === '/api/reports/inventory.csv' && $method === 'GET') { $auth(['super_admin','admin']); $rows=$medicineQuery(false); $stream=fopen('php://temp','r+'); fputcsv($stream,['Medicine','Category','Quantity','Price','Expiry','Status','Slot']); foreach($rows as $row) fputcsv($stream,[$row['name'],$row['category'],$row['stockQuantity'],number_format($row['price'],2),$row['expiryDate'],$row['status'],$row['slotNumber'] ?? 'Unassigned']); rewind($stream); Response::csv('medidispense-inventory-report.csv',stream_get_contents($stream)); }
 
     Response::error('Route not found.', 404);
+} catch (KioskError $e) {
+    if (isset($db) && $db->inTransaction()) $db->rollBack();
+    Response::error($e->getMessage(), $e->httpStatus, ['code'=>$e->errorCode]);
 } catch (Throwable $e) {
     if (isset($db) && $db instanceof PDO && $db->inTransaction()) $db->rollBack();
     error_log($e->getMessage());
-    Response::error($config['app_env'] === 'development' ? $e->getMessage() : 'Internal server error.', 500);
+    Response::error('The service is temporarily unavailable. Please contact assistance.', 500, ['code'=>'SERVICE_UNAVAILABLE']);
 }

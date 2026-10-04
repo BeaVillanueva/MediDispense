@@ -1,3 +1,4 @@
+import { phpBase, demoEnabled } from "../phpApi";
 import type { CreateExpressContextOptions } from "@trpc/server/adapters/express";
 import type { User } from "../../drizzle/schema";
 import { sdk } from "./sdk";
@@ -20,7 +21,7 @@ export async function createContext(
   let employeeId: number | null = null;
   let employeeFirebaseUid: string | null = null;
 
-  const phpApiUrl = process.env.MEDIDISPENSE_PHP_API_URL?.replace(/\/$/, "");
+  const phpApiUrl = phpBase();
   const authorization = opts.req.headers.authorization;
   if (phpApiUrl && authorization?.startsWith("Bearer ")) {
     try {

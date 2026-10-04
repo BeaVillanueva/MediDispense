@@ -31,6 +31,11 @@ export interface TransactionItem {
 }
 
 export interface Transaction {
+  databaseId?: number;
+  insertedAmount?: number;
+  remainingAmount?: number;
+  overpaymentAmount?: number;
+  dispensingRequestId?: number | null;
   /** Unit-level preview progress; optional for legacy ledger records. */
   requestedQuantity?: number;
   dispensedQuantity?: number;
@@ -39,8 +44,8 @@ export interface Transaction {
   total: number;
   amountPaid: number;
   change: number;
-  paymentStatus: "pending" | "successful" | "failed";
-  dispensingStatus: "pending" | "dispensing" | "dispensed" | "failed" | "timeout";
+  paymentStatus: "pending" | "successful" | "failed" | "cancelled";
+  dispensingStatus: "pending" | "dispensing" | "dispensed" | "failed" | "timeout" | "cancelled";
   createdAt: string;
   slotNumber: number | null;
 }

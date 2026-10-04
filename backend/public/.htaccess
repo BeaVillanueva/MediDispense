@@ -5,4 +5,7 @@ RewriteCond %{REQUEST_FILENAME} !-d
 RewriteRule ^ index.php [QSA,L]
 
 Options -Indexes
+<Files "index-before-rbac.php">
+  Require all denied
+</Files>
 Header always set Access-Control-Allow-Methods "GET, POST, PATCH, PUT, DELETE, OPTIONS"

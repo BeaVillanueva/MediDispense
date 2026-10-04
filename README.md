@@ -4,7 +4,7 @@ MediDispense is a functional medicine-vending system for a capstone machine with
 
 ## Delivered architecture
 
-The React application in `client/` is the interactive admin dashboard and kiosk. The preview server uses typed tRPC procedures and a domain service so the application is usable immediately without a local database. The XAMPP deployment path is in `backend/` and uses the normalized `database/schema.sql` schema. The PHP API is the production source of truth for MySQL inventory, transactions, payments, dispensing requests, sensor verification, audit logs, notifications, and CSV exports.
+The React application in `client/` is the interactive admin dashboard and kiosk. The kiosk uses a centralized PHP API client. Admin tRPC procedures bridge to that same PHP/MySQL source; an explicit development-only preview store remains available. The XAMPP deployment path is in `backend/` and uses the normalized `database/schema.sql` schema. The PHP API is the production source of truth for MySQL inventory, transactions, payments, dispensing requests, sensor verification, audit logs, notifications, and CSV exports.
 
 The machine model is slot-driven rather than medicine-column-driven. The current seed uses three rows in `machine_slots`, and adding Slot 4 is an insert plus a motor/sensor mapping; no table redesign is required.
 
@@ -18,15 +18,15 @@ pnpm install
 pnpm dev
 ```
 
-Open the preview root for the admin dashboard. Open `/kiosk` for the customer screen. The dashboard includes live refresh intervals, inventory adjustments, medicine creation, CSV download, machine status, and a complete demo kiosk flow.
+Open `/` for the admin dashboard and `/kiosk` for the customer screen. Configure the PHP API and apply the kiosk migration first. The kiosk preserves the single-medicine Buy Now flow and observes persisted coin/dispensing state; physical hardware is not connected yet.
 
-The preview data service is intentionally in-memory so the UI can be exercised without exposing or hard-coding real stock. When deploying against XAMPP, point the frontend API client at the PHP API or replace the preview procedures with `fetch` calls to the documented endpoints.
+The default data source is PHP/MySQL, including in development. There is no automatic demo fallback on an API error. See [Customer kiosk integration](docs/KIOSK.md) for configuration, the additive migration, test commands, security boundaries, and explicit demo mode.
 
 ## Run PHP/MySQL using XAMPP
 
 1. Install XAMPP with PHP 8.1+ and MySQL/MariaDB. Start Apache and MySQL from the XAMPP control panel.
 2. Copy this repository into `C:/xampp/htdocs/medidispense` on Windows, or `/opt/lampp/htdocs/medidispense` on Linux.
-3. Open phpMyAdmin and import `database/schema.sql`. The script creates the `medidispense` database, all foreign keys and indexes, default roles, categories, one machine, three slots, and system settings.
+3. For a NEW database only, open phpMyAdmin and import `database/schema.sql`. This bootstrap contains DROP statements: never import it over existing data. For existing databases apply only the relevant migrations, including `database/migrations/2026_10_04_kiosk_transactions.sql`. After a fresh bootstrap also apply that kiosk migration. The script creates the `medidispense` database, all foreign keys and indexes, default roles, categories, one machine, three slots, and system settings.
 4. Install the PHP dependency:
 
    ```bash
@@ -92,9 +92,9 @@ Employee identity/password creation remains in Firebase Authentication; the empl
 | `PATCH` | `/api/inventory/adjust` | Add or adjust stock and log the movement |
 | `GET` | `/api/dashboard/summary` | Metrics for the admin dashboard |
 | `POST` | `/api/transactions/checkout` | Revalidate stock and create a payment-pending transaction |
-| `POST` | `/api/payments/verify` | Verify amount, mark payment successful, and queue dispensing |
+| `POST` | `/api/payments/verify` | Trusted hardware only: record an idempotent coin delta, verify stored amount, and queue dispensing |
 | `POST` | `/api/dispense/{id}` | Send a queued command to the ESP32 |
-| `POST` | `/api/dispense/{id}/sensor` | Hardware callback for sensor confirmation |
+| `POST` | `/api/dispense/{id}/sensor` | Trusted per-unit sensor callback; deduct one confirmed unit |
 | `POST` | `/api/machine/heartbeat` | ESP32 status heartbeat |
 | `GET` | `/api/machine/status` | Machine and slot state |
 | `GET` | `/api/transactions` | Admin transaction ledger |

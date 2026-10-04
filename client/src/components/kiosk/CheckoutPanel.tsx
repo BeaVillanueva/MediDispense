@@ -33,6 +33,7 @@ export function CheckoutPanel({
   if (!transaction) return null;
   const item = transaction.items[0];
   const complete = status === "SUCCESS";
+  const cancelled = transaction.paymentStatus === "cancelled";
   const failed = status === "DISPENSE_FAILED";
   const paid = transaction.paymentStatus === "successful";
   const progress = transaction.dispensedQuantity ?? 0;
@@ -41,7 +42,7 @@ export function CheckoutPanel({
     0,
     Math.round((insertedAmount - transaction.total) * 100) / 100
   );
-  const waiting = !paid && insertedAmount < transaction.total;
+  const waiting = !cancelled && !paid && insertedAmount < transaction.total;
   const disabled = checkout.busy || !!checkout.error;
   return (
     <section className="kv-panel kv-checkout" aria-busy={checkout.busy}>
@@ -58,7 +59,9 @@ export function CheckoutPanel({
       </div>
       <p className="kv-eyebrow">
         {complete
-          ? "Confirmed simulation"
+          ? checkout.preview
+            ? "Confirmed simulation"
+            : "Confirmed dispensing"
           : failed
             ? "Assistance needed"
             : paid
@@ -74,16 +77,24 @@ export function CheckoutPanel({
               ? "Assistance needed"
               : paid
                 ? "Dispensing your medicine"
-                : "Insert the exact amount"}
+                : cancelled
+                  ? "Purchase cancelled"
+                  : "Insert the exact amount"}
       </h1>
       <p>
         {complete
-          ? "All requested units were confirmed in this preview. No physical medicine was dispensed. Thank you for using MediDispense."
+          ? checkout.preview
+            ? "All requested units were confirmed in this preview. No physical medicine was dispensed."
+            : "Please collect your medicine below. Thank you for using MediDispense."
           : failed
             ? "Payment was received, but the machine could not confirm that all requested medicine was dispensed. Please contact assistance."
             : paid
               ? "Please wait. Do not remove your medicine until dispensing is complete."
-              : "Coin slot payment only. This preview is not connected to a coin acceptor; do not insert real money."}
+              : cancelled
+                ? "This unpaid purchase was cancelled or expired. No coins were recorded."
+                : checkout.preview
+                  ? "Coin slot payment only. This preview is not connected to a coin acceptor; do not insert real money."
+                  : "Waiting for the connected coin acceptor. Hardware integration is pending; do not insert real coins until enabled by staff."}
       </p>
       <div className="kv-purchase-identity">
         <strong>{item.medicineName}</strong>
@@ -139,7 +150,7 @@ export function CheckoutPanel({
           />
         </>
       )}
-      {!waiting && !paid && !checkout.error && (
+      {!cancelled && !waiting && !paid && !checkout.error && (
         <p className="kv-payment-complete" role="status">
           PAYMENT COMPLETE · Verifying payment before dispensing. Please wait.
         </p>
@@ -177,8 +188,8 @@ export function CheckoutPanel({
             {progress} of {requested} units confirmed
           </strong>
           <p>
-            Only confirmed units were deducted from preview inventory. No
-            automatic refund is available. Keep this reference for assistance.
+            Only confirmed units were deducted from inventory. No automatic
+            refund is available. Keep this reference for assistance.
           </p>
         </div>
       )}
@@ -197,7 +208,9 @@ export function CheckoutPanel({
               <strong>{peso(transaction.total)}</strong>
             </div>
             <div className="kv-receipt-line">
-              <span>Total paid (simulation)</span>
+              <span>
+                {checkout.preview ? "Total paid (simulation)" : "Total paid"}
+              </span>
               <strong>{peso(transaction.amountPaid)}</strong>
             </div>
           </div>

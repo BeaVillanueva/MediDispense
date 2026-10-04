@@ -15,7 +15,7 @@ final class Response
     {
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
-        echo json_encode(['error' => ['message' => $message, 'details' => $details]], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['error' => ['message' => $message, 'code' => $details['code'] ?? 'REQUEST_FAILED', 'details' => $details]], JSON_UNESCAPED_UNICODE);
         exit;
     }
 

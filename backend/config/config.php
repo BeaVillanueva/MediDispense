@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-return [
+$config = [
+    'machine_code' => getenv('KIOSK_MACHINE_CODE') ?: 'MD-001',
     'app_env' => getenv('APP_ENV') ?: 'development',
     'app_url' => getenv('APP_URL') ?: 'http://localhost:5173',
     'cors_origins' => array_filter(array_map('trim', explode(',', getenv('CORS_ORIGINS') ?: 'http://localhost:5173,http://localhost:3000'))),
@@ -17,6 +18,9 @@ return [
         'initial_super_admin_email' => strtolower(trim(getenv('FIREBASE_INITIAL_SUPER_ADMIN_EMAIL') ?: 'beatrez.villanueva@cvsu.edu.ph')),
     ],
     'hardware' => [
-        'api_key' => getenv('HARDWARE_API_KEY') ?: 'replace-this-hardware-key',
+        'api_key' => getenv('HARDWARE_API_KEY') ?: '',
     ],
 ];
+
+$local = __DIR__ . '/local.php';
+return is_file($local) ? array_replace_recursive($config, require $local) : $config;
