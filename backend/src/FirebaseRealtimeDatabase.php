@@ -24,8 +24,12 @@ final class FirebaseRealtimeDatabase
      * Slot: 1, 2, or 3
      * Quantity: 1, 2, or 3
      */
-    public function sendDispenseCommand(int $slot, int $quantity): array
+    public function sendDispenseCommand(int $requestId, int $slot, int $quantity): array
     {
+        if ($requestId < 1) {
+            throw new InvalidArgumentException('Request ID must be a positive integer.');
+        }
+
         if ($slot < 1 || $slot > 3) {
             throw new InvalidArgumentException(
                 'Slot must be between 1 and 3.'
@@ -39,6 +43,7 @@ final class FirebaseRealtimeDatabase
         }
 
         $payload = [
+            'request_id' => $requestId,
             'slot' => $slot,
             'quantity' => $quantity,
             'dispensed' => 0,

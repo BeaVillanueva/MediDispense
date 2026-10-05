@@ -112,10 +112,12 @@ try {
     if ($path === '/api/test/firebase-dispense' && $method === 'POST') {
         $body = requestBody();
 
+        $requestId = $body['request_id'] ?? null;
+        if (!is_int($requestId) || $requestId < 1) Response::error('request_id must be a positive integer.', 422);
         $slot = (int)($body['slot'] ?? 0);
         $quantity = (int)($body['quantity'] ?? 0);
 
-        $result = $firebase->sendDispenseCommand($slot, $quantity);
+        $result = $firebase->sendDispenseCommand($requestId, $slot, $quantity);
 
         Response::json([
             'success' => true,

@@ -414,6 +414,7 @@ final class KioskService {
         $quantity = (int)($result['mapping']['requested_quantity'] ?? 0);
 
         $this->firebase->sendDispenseCommand(
+            $requestId,
             $slot,
             $quantity
         );
