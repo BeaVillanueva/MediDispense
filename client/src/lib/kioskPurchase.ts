@@ -23,7 +23,7 @@ export const cents = (value: number) => Math.round(value * 100);
 export const purchaseTotal = (price: number, quantity: number) =>
   (cents(price) * quantity) / 100;
 // No artificial five-unit cap. Configure a positive integer when policy is agreed.
-export const MAX_PURCHASE_QUANTITY: number | undefined = undefined;
+export const MAX_PURCHASE_QUANTITY = 3;
 export const SUCCESS_RESET_SECONDS = 20;
 export function purchasable(medicine: Medicine) {
   return (

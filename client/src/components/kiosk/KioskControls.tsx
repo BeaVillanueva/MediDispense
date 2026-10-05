@@ -12,16 +12,57 @@ import {
 } from "@/components/ui/alert-dialog";
 
 export function MedicineImage({ src, name }: { src: string; name: string }) {
-  const [failed, setFailed] = useState(false);
-  return src && !failed ? (
-    <img src={src} alt={name} onError={() => setFailed(true)} />
-  ) : (
+  return <MedicineImageLoader key={`${src}:${name}`} src={src} name={name} />;
+}
+
+function MedicineImageLoader({ src, name }: { src: string; name: string }) {
+  const [failedSources, setFailedSources] = useState<string[]>([]);
+  const [loadedSource, setLoadedSource] = useState<string | null>(null);
+  // Presentation artwork only. Names, prices, stock and labels still come from the API.
+  const artwork = /\bparacetamol\b/i.test(name)
+    ? "paracetamol"
+    : /\bbioflu\b/i.test(name)
+      ? "bioflu"
+      : /\bcetirizine\b/i.test(name)
+        ? "cetirizine"
+        : "medicine";
+  const useStoredImage = !!src && !failedSources.includes(src);
+  const imageSource = useStoredImage
+    ? src
+    : `${import.meta.env.BASE_URL}images/kiosk/${artwork}.svg`;
+  const exhausted = failedSources.includes(imageSource);
+  const loaded = !exhausted && loadedSource === imageSource;
+  return (
     <div
-      className="kv-image-placeholder"
-      aria-label={`No image available for ${name}`}
+      className="kv-medicine-art"
+      role="img"
+      aria-label={
+        useStoredImage
+          ? name
+          : `Demo illustration for ${name}, not actual packaging`
+      }
     >
-      <Pill size={48} />
-      <span>Medicine image unavailable</span>
+      {!loaded && (
+        <div className="kv-art-fallback" aria-hidden="true">
+          <Pill size={56} />
+        </div>
+      )}
+      {!exhausted && (
+        <img
+          key={imageSource}
+          src={imageSource}
+          alt=""
+          aria-hidden="true"
+          style={{ visibility: loaded ? "visible" : "hidden" }}
+          onLoad={() => setLoadedSource(imageSource)}
+          onError={() =>
+            setFailedSources(previous => [...previous, imageSource])
+          }
+        />
+      )}
+      {!useStoredImage && (
+        <small className="kv-art-label">Demo illustration</small>
+      )}
     </div>
   );
 }

@@ -98,7 +98,8 @@ describe("Kiosk single-medicine coin purchase", () => {
     for (const quantity of [0, -1, 1.5, 10000])
       expect(() => store.checkout([{ medicineId: 1, quantity }])).toThrow();
     const medicine = store.getMedicine(1)!;
-    expect(quantityLimit(medicine)).toBe(medicine.stockQuantity);
+    expect(quantityLimit(medicine)).toBe(Math.min(3, medicine.stockQuantity));
+    expect(quantityLimit({ ...medicine, stockQuantity: 2 })).toBe(2);
     expect(quantityLimit(medicine, 5)).toBe(5);
     expect(quantityLimit({ ...medicine, stockQuantity: 2 }, 5)).toBe(2);
     expect(quantityLimit({ ...medicine, stockQuantity: 0 })).toBe(0);

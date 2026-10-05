@@ -387,6 +387,9 @@ export default function Kiosk() {
                       <SafetyNotice />
                       <div className="kv-quantity-section">
                         <h2>Choose quantity</h2>
+                        <p className="kv-quantity-hint">
+                          Up to {maximum} per purchase · Maximum 3 tablets
+                        </p>
                         <QuantityPicker
                           value={selectedQuantity}
                           maximum={maximum}
