@@ -20,6 +20,14 @@ export async function setupVite(app: Express, server: Server) {
     appType: "custom",
   });
 
+  // Serve kiosk artwork directly, including files added after Vite started.
+  // Otherwise a missed public asset can fall through to the HTML app shell.
+  app.use(
+    "/images/kiosk",
+    express.static(path.resolve(vite.config.publicDir, "images/kiosk"), {
+      fallthrough: false,
+    })
+  );
   app.use(vite.middlewares);
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
