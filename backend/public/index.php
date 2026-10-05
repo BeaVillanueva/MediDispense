@@ -5,6 +5,7 @@ require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/Http/Response.php';
 require_once __DIR__ . '/../src/KioskService.php';
+require_once __DIR__ . '/../src/FirebaseRealtimeDatabase.php';
 require_once __DIR__ . '/../src/Auth/FirebaseTokenVerifier.php';
 
 $config = require __DIR__ . '/../config/config.php';
@@ -36,7 +37,16 @@ if ($method === 'OPTIONS') { http_response_code(204); exit; }
 
 try {
     $db = Database::connect($config);
-    $kiosk = new KioskService($db, $config['machine_code']);
+
+    $firebase = new FirebaseRealtimeDatabase(
+        (string)($config['firebase']['database_url'] ?? '')
+    );
+
+    $kiosk = new KioskService(
+        $db,
+        $config['machine_code'],
+        $firebase
+    );
     $verifier = new FirebaseTokenVerifier($config['firebase']['project_id']);
     $claims = null;
     $profile = null;
@@ -99,6 +109,20 @@ try {
     $medicineQuery = fn(bool $available=false): array => $kiosk->medicines($available);
 
     if ($path === '/api/health' && $method === 'GET') Response::json(['status' => 'ok', 'service' => 'MediDispense PHP API', 'time' => gmdate('c')]);
+    if ($path === '/api/test/firebase-dispense' && $method === 'POST') {
+        $body = requestBody();
+
+        $slot = (int)($body['slot'] ?? 0);
+        $quantity = (int)($body['quantity'] ?? 0);
+
+        $result = $firebase->sendDispenseCommand($slot, $quantity);
+
+        Response::json([
+            'success' => true,
+            'message' => 'Firebase dispense command sent.',
+            'firebase' => $result,
+        ]);
+    }
 
     if ($path === '/api/auth/profile' && $method === 'POST') {
         $user = $auth([], true);

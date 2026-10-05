@@ -7,7 +7,11 @@ final class KioskError extends RuntimeException {
 
 /** MySQL is authoritative. This service never activates hardware. */
 final class KioskService {
-    public function __construct(private PDO $db, private string $machineCode) {}
+    public function __construct(
+        private PDO $db,
+        private string $machineCode,
+        private FirebaseRealtimeDatabase $firebase
+    ) {}
     private function one(string $sql, array $args=[]): ?array { $s=$this->db->prepare($sql); $s->execute($args); return $s->fetch() ?: null; }
     private function exec(string $sql, array $args=[]): void { $this->db->prepare($sql)->execute($args); }
     private function atomic(callable $action): mixed {
@@ -147,16 +151,72 @@ final class KioskService {
         $this->exec('INSERT INTO dispensing_requests(transaction_id,machine_id,slot_id,quantity,command_reference,command_payload) VALUES(?,?,?,?,?,?)',[$t['id'],$slot['machine_id'],$slot['id'],$item['quantity'],'DISP-'.bin2hex(random_bytes(16)),json_encode($payload)]);
         $this->exec("UPDATE transactions SET dispensing_status='dispensing' WHERE id=?",[$t['id']]);
     }
-    public function sent(int $requestId): array {
-        $r=$this->one('SELECT transaction_id FROM dispensing_requests WHERE id=?',[$requestId]);
-        if(!$r) throw new KioskError('DISPENSE_NOT_ALLOWED','Dispensing request not found.',404);
-        return $this->atomic(function() use($r,$requestId) {
-            $t=$this->transaction((int)$r['transaction_id'],true);
-            if($t['payment_status']!=='successful'||$t['dispensing_status']!=='dispensing') throw new KioskError('DISPENSE_NOT_ALLOWED','No active paid dispensing request.');
-            $this->exec("UPDATE dispensing_requests SET request_status='sent',sent_at=COALESCE(sent_at,NOW()) WHERE id=? AND request_status IN ('queued','sent','dispensing')",[$requestId]);
-            $request=$this->one('SELECT * FROM dispensing_requests WHERE id=?',[$requestId]);
-            return ['dispensing_request_id'=>$requestId,'command_reference'=>$request['command_reference'],'unit_number'=>(int)$request['dispensed_quantity']+1,'mapping'=>json_decode($request['command_payload'],true)];
+    public function sent(int $requestId): array{
+        $r = $this->one(
+            'SELECT transaction_id FROM dispensing_requests WHERE id=?',
+            [$requestId]
+        );
+
+        if (!$r) {
+            throw new KioskError(
+                'DISPENSE_NOT_ALLOWED',
+                'Dispensing request not found.',
+                404
+            );
+        }
+
+        $result = $this->atomic(function () use ($r, $requestId) {
+            $t = $this->transaction(
+                (int)$r['transaction_id'],
+                true
+            );
+
+            if (
+                $t['payment_status'] !== 'successful' ||
+                $t['dispensing_status'] !== 'dispensing'
+            ) {
+                throw new KioskError(
+                    'DISPENSE_NOT_ALLOWED',
+                    'No active paid dispensing request.'
+                );
+            }
+
+            $this->exec(
+                "UPDATE dispensing_requests
+                SET request_status='sent',
+                    sent_at=COALESCE(sent_at,NOW())
+                WHERE id=?
+                AND request_status IN ('queued','sent','dispensing')",
+                [$requestId]
+            );
+
+            $request = $this->one(
+                'SELECT * FROM dispensing_requests WHERE id=?',
+                [$requestId]
+            );
+
+            $mapping = json_decode(
+                $request['command_payload'],
+                true
+            );
+
+            return [
+                'dispensing_request_id' => $requestId,
+                'command_reference' => $request['command_reference'],
+                'unit_number' => (int)$request['dispensed_quantity'] + 1,
+                'mapping' => $mapping,
+            ];
         });
+
+        $slot = (int)($result['mapping']['slot_number'] ?? 0);
+        $quantity = (int)($result['mapping']['requested_quantity'] ?? 0);
+
+        $this->firebase->sendDispenseCommand(
+            $slot,
+            $quantity
+        );
+
+        return $result;
     }
     public function sensor(int $requestId,int $unit,bool $success): array {
         $request=$this->one('SELECT * FROM dispensing_requests WHERE id=?',[$requestId]);
