@@ -67,38 +67,240 @@ final class KioskService {
         }
         return array_values($rows);
     }
-    public function checkout(array $body,string $token): array {
-        $items=$body['items']??[]; $key=$body['request_id']??'';
-        if(!is_array($items)||count($items)!==1||!is_array($items[0]??null)) throw new KioskError('INVALID_QUANTITY','Choose exactly one medicine.',422);
-        $item=$items[0]; $qty=$item['quantity']??null; $medicineId=$item['medicine_id']??null;
-        if(!is_int($qty)||$qty<1||!is_int($medicineId)||$medicineId<1) throw new KioskError('INVALID_QUANTITY','Quantity must be a positive whole number.',422);
-        if(!is_string($key)||!preg_match('/^[a-zA-Z0-9-]{16,64}$/D',$key)||!preg_match('/^[a-f0-9]{64}$/D',$token)) throw new KioskError('INVALID_REQUEST','A purchase request identifier and recovery token are required.',422);
+    public function checkout(array $body, string $token): array{
+        $items = $body['items'] ?? [];
+        $key = $body['request_id'] ?? '';
+
+        if (
+            !is_array($items) ||
+            count($items) !== 1 ||
+            !is_array($items[0] ?? null)
+        ) {
+            throw new KioskError(
+                'INVALID_QUANTITY',
+                'Choose exactly one medicine.',
+                422
+            );
+        }
+
+        $item = $items[0];
+        $qty = $item['quantity'] ?? null;
+        $medicineId = $item['medicine_id'] ?? null;
+
+        // MediDispense allows 1 to 3 tablets per transaction.
+        if (
+            !is_int($qty) ||
+            $qty < 1 ||
+            $qty > 3 ||
+            !is_int($medicineId) ||
+            $medicineId < 1
+        ) {
+            throw new KioskError(
+                'INVALID_QUANTITY',
+                'Quantity must be between 1 and 3 tablets.',
+                422
+            );
+        }
+
+        if (
+            !is_string($key) ||
+            !preg_match('/^[a-zA-Z0-9-]{16,64}$/D', $key) ||
+            !preg_match('/^[a-f0-9]{64}$/D', $token)
+        ) {
+            throw new KioskError(
+                'INVALID_REQUEST',
+                'A purchase request identifier and recovery token are required.',
+                422
+            );
+        }
+
         $this->expireUnpaid();
-        return $this->atomic(function() use($item,$qty,$medicineId,$key,$token) {
-            $existing=$this->one('SELECT * FROM transactions WHERE checkout_key=? FOR UPDATE',[$key]);
-            if($existing) {
-                $this->authorize($existing,$token); $old=$this->item((int)$existing['id']);
-                if((int)$old['medicine_id']!==$medicineId||(int)$old['quantity']!==$qty) throw new KioskError('REQUEST_CONFLICT','This request identifier belongs to another purchase.');
+
+        return $this->atomic(function () use (
+            $item,
+            $qty,
+            $medicineId,
+            $key,
+            $token
+        ) {
+            $existing = $this->one(
+                'SELECT * FROM transactions WHERE checkout_key=? FOR UPDATE',
+                [$key]
+            );
+
+            if ($existing) {
+                $this->authorize($existing, $token);
+
+                $old = $this->item((int)$existing['id']);
+
+                if (
+                    (int)$old['medicine_id'] !== $medicineId ||
+                    (int)$old['quantity'] !== $qty
+                ) {
+                    throw new KioskError(
+                        'REQUEST_CONFLICT',
+                        'This request identifier belongs to another purchase.'
+                    );
+                }
+
                 return $this->snapshot((int)$existing['id']);
             }
-            $r=$this->one('SELECT m.*,i.quantity,i.reserved_quantity,c.is_active category_active,(m.expiry_date<CURDATE()) AS is_expired FROM medicines m JOIN inventory i ON i.medicine_id=m.id JOIN medicine_categories c ON c.id=m.category_id WHERE m.id=? FOR UPDATE',[$medicineId]);
-            if(!$r||!$r['is_enabled']||!$r['category_active']||$r['is_expired']) throw new KioskError('MEDICINE_UNAVAILABLE','This medicine is unavailable.');
-            $slot=$this->one("SELECT s.*,ma.is_enabled FROM machine_slots s JOIN machines ma ON ma.id=s.machine_id WHERE s.medicine_id=? AND ma.machine_code=? AND ma.is_enabled=1 AND s.slot_status IN ('ready','low') ORDER BY s.id LIMIT 1 FOR UPDATE",[$medicineId,$this->machineCode]);
-            if(!$slot) throw new KioskError('SLOT_UNAVAILABLE','No active vending slot is assigned.');
-            if((int)$r['quantity']-(int)$r['reserved_quantity']<$qty) throw new KioskError('OUT_OF_STOCK','Not enough medicine is available. Please review the quantity.');
-            $total=self::money(self::cents($r['unit_price'])*$qty);
-            $code='TXN-'.strtoupper(bin2hex(random_bytes(12)));
-            $this->exec("INSERT INTO transactions(transaction_code,machine_id,subtotal,total_amount,checkout_key,access_token_hash,expires_at) VALUES(?,?,?,?,?,?,DATE_ADD(NOW(),INTERVAL 10 MINUTE))",[$code,$slot['machine_id'],$total,$total,$key,hash('sha256',$token)]);
-            $id=(int)$this->db->lastInsertId();
-            $this->exec('INSERT INTO transaction_items(transaction_id,medicine_id,slot_id,medicine_name_snapshot,unit_price_snapshot,quantity,subtotal) VALUES(?,?,?,?,?,?,?)',[$id,$medicineId,$slot['id'],$r['name'],$r['unit_price'],$qty,$total]);
-            $this->exec('INSERT INTO payments(transaction_id,amount_due) VALUES(?,?)',[$id,$total]);
-            $this->exec('UPDATE inventory SET reserved_quantity=reserved_quantity+? WHERE medicine_id=?',[$qty,$medicineId]);
-            if(self::cents($total)===0) {
-                $this->exec("UPDATE transactions SET payment_status='successful',expires_at=NULL WHERE id=?",[$id]);
-                $this->exec("UPDATE payments SET status='successful',verified_at=NOW() WHERE transaction_id=?",[$id]);
-                $this->queue($this->transaction($id));
+
+            $r = $this->one(
+                'SELECT
+                    m.*,
+                    i.quantity,
+                    i.reserved_quantity,
+                    c.is_active category_active,
+                    (m.expiry_date<CURDATE()) AS is_expired
+                FROM medicines m
+                JOIN inventory i ON i.medicine_id=m.id
+                JOIN medicine_categories c ON c.id=m.category_id
+                WHERE m.id=?
+                FOR UPDATE',
+                [$medicineId]
+            );
+
+            if (
+                !$r ||
+                !$r['is_enabled'] ||
+                !$r['category_active'] ||
+                $r['is_expired']
+            ) {
+                throw new KioskError(
+                    'MEDICINE_UNAVAILABLE',
+                    'This medicine is unavailable.'
+                );
             }
-            // Reservation is not an inventory deduction. Physical quantity is unchanged.
+
+            $slot = $this->one(
+                "SELECT s.*, ma.is_enabled
+                FROM machine_slots s
+                JOIN machines ma ON ma.id=s.machine_id
+                WHERE s.medicine_id=?
+                AND ma.machine_code=?
+                AND ma.is_enabled=1
+                AND s.slot_status IN ('ready','low')
+                ORDER BY s.id
+                LIMIT 1
+                FOR UPDATE",
+                [$medicineId, $this->machineCode]
+            );
+
+            if (!$slot) {
+                throw new KioskError(
+                    'SLOT_UNAVAILABLE',
+                    'No active vending slot is assigned.'
+                );
+            }
+
+            if (
+                (int)$r['quantity'] -
+                (int)$r['reserved_quantity'] <
+                $qty
+            ) {
+                throw new KioskError(
+                    'OUT_OF_STOCK',
+                    'Not enough medicine is available. Please review the quantity.'
+                );
+            }
+
+            $total = self::money(
+                self::cents($r['unit_price']) * $qty
+            );
+
+            $code = 'TXN-' . strtoupper(
+                bin2hex(random_bytes(12))
+            );
+
+            $this->exec(
+                "INSERT INTO transactions(
+                    transaction_code,
+                    machine_id,
+                    subtotal,
+                    total_amount,
+                    checkout_key,
+                    access_token_hash,
+                    expires_at
+                )
+                VALUES(
+                    ?,?,?,?,?,?,
+                    DATE_ADD(NOW(),INTERVAL 10 MINUTE)
+                )",
+                [
+                    $code,
+                    $slot['machine_id'],
+                    $total,
+                    $total,
+                    $key,
+                    hash('sha256', $token)
+                ]
+            );
+
+            $id = (int)$this->db->lastInsertId();
+
+            $this->exec(
+                'INSERT INTO transaction_items(
+                    transaction_id,
+                    medicine_id,
+                    slot_id,
+                    medicine_name_snapshot,
+                    unit_price_snapshot,
+                    quantity,
+                    subtotal
+                )
+                VALUES(?,?,?,?,?,?,?)',
+                [
+                    $id,
+                    $medicineId,
+                    $slot['id'],
+                    $r['name'],
+                    $r['unit_price'],
+                    $qty,
+                    $total
+                ]
+            );
+
+            $this->exec(
+                'INSERT INTO payments(
+                    transaction_id,
+                    amount_due
+                )
+                VALUES(?,?)',
+                [$id, $total]
+            );
+
+            $this->exec(
+                'UPDATE inventory
+                SET reserved_quantity=reserved_quantity+?
+                WHERE medicine_id=?',
+                [$qty, $medicineId]
+            );
+
+            if (self::cents($total) === 0) {
+                $this->exec(
+                    "UPDATE transactions
+                    SET payment_status='successful',
+                        expires_at=NULL
+                    WHERE id=?",
+                    [$id]
+                );
+
+                $this->exec(
+                    "UPDATE payments
+                    SET status='successful',
+                        verified_at=NOW()
+                    WHERE transaction_id=?",
+                    [$id]
+                );
+
+                $this->queue(
+                    $this->transaction($id)
+                );
+            }
+
+            // Reservation is not an inventory deduction.
+            // Physical quantity is unchanged until dispensing is confirmed.
             return $this->snapshot($id);
         });
     }
