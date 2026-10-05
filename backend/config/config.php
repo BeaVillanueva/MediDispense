@@ -5,7 +5,7 @@ $config = [
     'machine_code' => getenv('KIOSK_MACHINE_CODE') ?: 'MD-001',
     'app_env' => getenv('APP_ENV') ?: 'development',
     'app_url' => getenv('APP_URL') ?: 'http://localhost:5173',
-    'cors_origins' => array_filter(array_map('trim', explode(',', getenv('CORS_ORIGINS') ?: 'http://localhost:5173,http://localhost:3000'))),
+    'cors_origins' => array_filter(array_map('trim', explode(',', getenv('CORS_ORIGINS') ?: 'http://localhost:5173,http://localhost:3000,http://localhost:3001'))),
     'database' => [
         'host' => getenv('DB_HOST') ?: '127.0.0.1',
         'port' => getenv('DB_PORT') ?: '3306',
@@ -15,7 +15,6 @@ $config = [
     ],
     'firebase' => [
         'project_id' => getenv('FIREBASE_PROJECT_ID') ?: 'medidispense-e4883',
-        'initial_super_admin_email' => strtolower(trim(getenv('FIREBASE_INITIAL_SUPER_ADMIN_EMAIL') ?: 'beatrez.villanueva@cvsu.edu.ph')),
     ],
     'hardware' => [
         'api_key' => getenv('HARDWARE_API_KEY') ?: '',

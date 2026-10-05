@@ -42,7 +42,6 @@ The default data source is PHP/MySQL, including in development. There is no auto
    | --- | --- |
    | `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD` | MySQL connection |
    | `FIREBASE_PROJECT_ID` | Firebase project used for ID-token audience/issuer validation |
-   | `FIREBASE_INITIAL_SUPER_ADMIN_EMAIL` | Verified Firebase email permitted to claim the initial owner role during first-time provisioning |
    | `HARDWARE_API_KEY` | Secret sent by ESP32 in `X-Hardware-Key` |
    | `CORS_ORIGINS` | Allowed React origins |
 
@@ -64,7 +63,7 @@ Authorization: Bearer <firebase-id-token>
 
 The API validates the token signature against Google Secure Token certificates, then checks `aud`, `iss`, `sub`, `iat`, and `exp`. The MySQL `users` table stores `firebase_uid`, profile fields, and the server-controlled role. There is no PHP password store. Roles are exactly `super_admin`, `admin`, and `staff`; permissions are enforced by the PHP API on every protected request.
 
-Set `FIREBASE_INITIAL_SUPER_ADMIN_EMAIL` to the verified owner email before first sign-in. The first matching Firebase account is provisioned as `super_admin`; other new registrations receive `staff`. On an existing database, apply `database/migrations/2026_09_24_employee_rbac.sql` to normalize employee roles, then apply `database/migrations/2026_09_25_employee_profile.sql` to add permanent generated Employee IDs. The existing `users.profile_image_url` field is reused for profile photos.
+New accounts receive `staff`. To bootstrap one development Super Admin using a verified existing account, follow [the local setup instructions](docs/DEVELOPMENT_SUPER_ADMIN.md). Automatic owner promotion by email is disabled. Older databases may need the existing `database/migrations/2026_09_24_employee_rbac.sql` role normalization and `database/migrations/2026_09_25_employee_profile.sql` Employee ID migration; do not rerun migrations already applied. The Super Admin bootstrap itself requires no new migration. The existing `users.profile_image_url` field is reused for profile photos.
 
 The Node/tRPC server must also have `MEDIDISPENSE_PHP_API_URL` set to the PHP API base URL (the same value as `VITE_API_BASE_URL`). It verifies each Firebase bearer token through the PHP profile endpoint before serving employee dashboard procedures. Production dashboard procedures fail closed if this bridge is not configured.
 

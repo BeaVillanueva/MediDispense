@@ -58,19 +58,13 @@ try {
             $existing = $byEmail->fetch();
             if ($existing !== false && !(int)$existing['is_active']) Response::error('This employee profile is deactivated. Ask a Super Admin to activate the account.', 403);
             if ($existing !== false) {
-                $db->prepare('UPDATE users SET firebase_uid=? WHERE id=?')->execute([$claims['sub'], $existing['id']]);
-                $query->execute([$claims['sub']]);
-                $profile = $query->fetch();
+                Response::error('This email is linked to another identity. Sign in with the original account.', 403);
             }
         }
         if (!$profile && $provision) {
             $email = (string)($claims['email'] ?? ('firebase-' . $claims['sub'] . '@local.invalid'));
             $displayName = (string)($claims['name'] ?? $email);
-            $ownerEmail = (string)$config['firebase']['initial_super_admin_email'];
-            $hasOwner = (int)$db->query("SELECT COUNT(*) FROM users u JOIN roles r ON r.id=u.role_id WHERE r.code='super_admin'")->fetchColumn() > 0;
-            $isInitialOwner = !$hasOwner && $ownerEmail !== '' && strtolower($email) === $ownerEmail;
-            if ($isInitialOwner && empty($claims['email_verified'])) Response::error('Verify the configured owner email before first-time Super Admin provisioning.', 403);
-            $roleCode = $isInitialOwner ? 'super_admin' : 'staff';
+            $roleCode = 'staff';
             $employeeId = 'EMP-' . strtoupper(substr(hash('sha256', (string)$claims['sub']), 0, 12));
             $create = $db->prepare('INSERT INTO users (firebase_uid,employee_id,email,display_name,role_id,email_verified_at) SELECT ?,?,?,?,id,? FROM roles WHERE code=? LIMIT 1');
             $create->execute([$claims['sub'], $employeeId, $email, $displayName, !empty($claims['email_verified']) ? date('Y-m-d H:i:s') : null, $roleCode]);
@@ -79,6 +73,10 @@ try {
         }
         if (!$profile) Response::error('No employee profile is linked to this Firebase account.', 403);
         if (!(int)$profile['is_active']) Response::error('This employee profile is deactivated. Ask a Super Admin to activate the account.', 403);
+        if ($profile['role_code'] === 'super_admin' && empty($claims['email_verified'])) Response::error('Verify your email before using Super Admin permissions.', 403);
+        if ($provision && !empty($claims['email_verified']) && strcasecmp((string)($claims['email'] ?? ''), (string)$profile['email']) === 0 && empty($profile['email_verified_at'])) {
+            $db->prepare('UPDATE users SET email_verified_at=NOW() WHERE id=?')->execute([$profile['id']]);
+        }
         if ($roles && !in_array($profile['role_code'], $roles, true)) Response::error('You are not authorized for this action.', 403);
         return $profile;
     };
