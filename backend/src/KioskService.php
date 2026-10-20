@@ -324,6 +324,56 @@ final class KioskService {
             $this->cancelLocked($t); return $this->snapshot($id);
         });
     }
+
+    public function hardwarePaymentSession(): array
+    {
+        $this->expireUnpaid();
+
+        $t = $this->one(
+            "SELECT
+                t.id,
+                t.transaction_code,
+                t.total_amount,
+                t.amount_paid,
+                t.payment_status,
+                t.dispensing_status,
+                t.expires_at
+            FROM transactions t
+            JOIN machines m ON m.id = t.machine_id
+            WHERE m.machine_code = ?
+            AND t.checkout_key IS NOT NULL
+            AND t.payment_status = 'pending'
+            AND t.dispensing_status = 'pending'
+            AND (
+                t.expires_at IS NULL
+                OR t.expires_at >= NOW()
+            )
+            ORDER BY t.created_at ASC
+            LIMIT 1",
+            [$this->machineCode]
+        );
+
+        if (!$t) {
+            return [
+                'active' => false
+            ];
+        }
+
+        $total = self::cents($t['total_amount']);
+        $paid = self::cents($t['amount_paid']);
+        $remaining = max(0, $total - $paid);
+
+        return [
+            'active' => true,
+            'transaction_id' => (int)$t['id'],
+            'transaction_code' => $t['transaction_code'],
+            'total_amount' => self::money($total),
+            'amount_paid' => self::money($paid),
+            'remaining_amount' => self::money($remaining),
+            'payment_status' => $t['payment_status']
+        ];
+    }
+
     /** Only a trusted hardware caller may enter this boundary. Amount is a coin delta. */
     public function coin(int $id,string $eventId,mixed $amount): array {
         $delta=self::cents($amount);
@@ -353,6 +403,53 @@ final class KioskService {
         $this->exec('INSERT INTO dispensing_requests(transaction_id,machine_id,slot_id,quantity,command_reference,command_payload) VALUES(?,?,?,?,?,?)',[$t['id'],$slot['machine_id'],$slot['id'],$item['quantity'],'DISP-'.bin2hex(random_bytes(16)),json_encode($payload)]);
         $this->exec("UPDATE transactions SET dispensing_status='dispensing' WHERE id=?",[$t['id']]);
     }
+
+    public function hardwarePendingDispense(): array
+    {
+        $request = $this->one(
+            "SELECT
+                dr.id AS request_id,
+                dr.transaction_id,
+                dr.quantity,
+                dr.request_status,
+                dr.sent_at,
+                ms.slot_number,
+                ms.motor_id,
+                ms.sensor_id
+            FROM dispensing_requests dr
+            JOIN transactions t
+                ON t.id = dr.transaction_id
+            JOIN machine_slots ms
+                ON ms.id = dr.slot_id
+            JOIN machines m
+                ON m.id = dr.machine_id
+            WHERE m.machine_code = ?
+            AND t.payment_status = 'successful'
+            AND t.dispensing_status = 'dispensing'
+            AND dr.request_status = 'queued'
+            AND dr.sent_at IS NULL
+            ORDER BY dr.id ASC
+            LIMIT 1",
+            [$this->machineCode]
+        );
+
+        if (!$request) {
+            return [
+                'active' => false
+            ];
+        }
+
+        return [
+            'active' => true,
+            'request_id' => (int)$request['request_id'],
+            'transaction_id' => (int)$request['transaction_id'],
+            'slot_number' => (int)$request['slot_number'],
+            'motor_id' => $request['motor_id'],
+            'sensor_id' => $request['sensor_id'],
+            'quantity' => (int)$request['quantity']
+        ];
+    }
+
     public function sent(int $requestId): array{
         $r = $this->one(
             'SELECT transaction_id FROM dispensing_requests WHERE id=?',

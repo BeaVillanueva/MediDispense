@@ -139,7 +139,11 @@ export function useKioskCheckout() {
       clear();
       return true;
     }
-    if (t.dispensingStatus === "dispensed" || t.paymentStatus === "cancelled") {
+    if (
+      t.dispensingStatus === "dispensed" ||
+      t.dispensingStatus === "failed" ||
+      t.paymentStatus === "cancelled"
+    ) {
       clear();
       return true;
     }

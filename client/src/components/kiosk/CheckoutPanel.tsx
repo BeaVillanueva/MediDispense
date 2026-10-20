@@ -183,15 +183,25 @@ export function CheckoutPanel({
         </div>
       )}
       {failed && (
-        <div className="kv-message kv-error" role="alert">
-          <strong>
-            {progress} of {requested} units confirmed
-          </strong>
-          <p>
-            Only confirmed units were deducted from inventory. No automatic
-            refund is available. Keep this reference for assistance.
-          </p>
-        </div>
+        <>
+          <div className="kv-message kv-error" role="alert">
+            <strong>
+              {progress} of {requested} units confirmed
+            </strong>
+            <p>
+              Only confirmed units were deducted from inventory. No automatic
+              refund is available. Keep this reference for assistance.
+            </p>
+          </div>
+
+          <button
+            className="kv-button kv-primary kv-wide"
+            onClick={onFinish}
+            disabled={checkout.busy}
+          >
+            Start New Purchase
+          </button>
+        </>
       )}
       <p className="kv-reference">
         Purchase reference: <strong>{transaction.id}</strong>

@@ -32,6 +32,7 @@ export async function phpRequest<T>(
   const response = await fetch(`${phpBase()}${path}`, {
     method,
     headers: {
+      Cookie: ctx.req.headers.cookie ?? "",
       ...(ctx.req.headers.authorization
         ? { Authorization: ctx.req.headers.authorization }
         : {}),

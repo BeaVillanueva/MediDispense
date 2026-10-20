@@ -7,9 +7,12 @@ require_once __DIR__ . '/../src/Http/Response.php';
 require_once __DIR__ . '/../src/KioskService.php';
 require_once __DIR__ . '/../src/FirebaseRealtimeDatabase.php';
 require_once __DIR__ . '/../src/Auth/FirebaseTokenVerifier.php';
+require_once __DIR__ . '/../src/Auth/AdminSecurity.php';
 
 $config = require __DIR__ . '/../config/config.php';
 session_name('medidispense_session');
+ini_set('session.use_strict_mode', '1');
+session_set_cookie_params(['httponly'=>true,'secure'=>!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off','samesite'=>'Lax','path'=>'/']);
 session_start();
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
@@ -48,10 +51,11 @@ try {
         $firebase
     );
     $verifier = new FirebaseTokenVerifier($config['firebase']['project_id']);
+    $security = new AdminSecurity($db);
     $claims = null;
     $profile = null;
 
-    $auth = function (array $roles = [], bool $provision = false) use (&$claims, &$profile, $verifier, $db, $config): array {
+    $auth = function (array $roles = [], bool $provision = false) use (&$claims, &$profile, $verifier, $db, $config, $security): array {
         $header = $_SERVER['HTTP_AUTHORIZATION'] ?? ($_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? '');
         if ($header === '' && function_exists('getallheaders')) {
             foreach (getallheaders() as $name => $value) if (strcasecmp($name, 'Authorization') === 0) { $header = (string)$value; break; }
@@ -88,6 +92,7 @@ try {
             $db->prepare('UPDATE users SET email_verified_at=NOW() WHERE id=?')->execute([$profile['id']]);
         }
         if ($roles && !in_array($profile['role_code'], $roles, true)) Response::error('You are not authorized for this action.', 403);
+        $security->check($profile, $_SESSION);
         return $profile;
     };
     $hardwareAuth = function () use ($config): void {
@@ -109,6 +114,31 @@ try {
     $medicineQuery = fn(bool $available=false): array => $kiosk->medicines($available);
 
     if ($path === '/api/health' && $method === 'GET') Response::json(['status' => 'ok', 'service' => 'MediDispense PHP API', 'time' => gmdate('c')]);
+
+    if ($path === '/api/auth/login' && $method === 'POST') {
+        if (!str_contains($_SERVER['CONTENT_TYPE'] ?? '', 'application/json')) Response::error('JSON request required.',415);
+        $body=requestBody();
+        if (!is_string($body['email'] ?? null) || !is_string($body['password'] ?? null)) Response::error('Email and password are required.',422);
+        $uid=$security->login($body['email'],$body['password'],fn($email,$password)=>AdminSecurity::verifyPassword($config['firebase']['web_api_key'],$email,$password));
+        session_regenerate_id(true);
+        $_SESSION=[];
+        $_SESSION['admin_auth']=['uid'=>$uid,'last_activity'=>time()];
+        Response::json(['success'=>true]);
+    }
+    if ($path === '/api/auth/session' && $method === 'GET') {
+        $user=$auth(['admin','super_admin','staff']);
+        Response::json(['remaining_seconds'=>isset($_SESSION['admin_auth']) ? max(0,300-(time()-$_SESSION['admin_auth']['last_activity'])) : null]);
+    }
+    if ($path === '/api/auth/activity' && $method === 'POST') {
+        $user=$auth(['admin','super_admin']);
+        $security->check($user,$_SESSION,true);
+        Response::json(['remaining_seconds'=>300]);
+    }
+    if (preg_match('#^/api/users/(\d+)/unlock$#',$path,$matches) && $method==='POST') {
+        $actor=$auth(['super_admin']);
+        $security->unlock($actor,(int)$matches[1]);
+        Response::json(['success'=>true]);
+    }
 
     if ($path === '/api/auth/profile' && $method === 'POST') {
         $user = $auth([], true);
@@ -191,7 +221,7 @@ try {
     }
     if ($path === '/api/users' && $method === 'GET') {
         $auth(['super_admin']);
-        $rows = $db->query("SELECT u.id,u.employee_id,u.firebase_uid,u.email,u.display_name,u.contact_number,u.profile_image_url,u.is_active,u.archived_at,u.email_verified_at,u.last_login_at,u.created_at,u.updated_at,r.code AS role_code,r.name AS role_name FROM users u JOIN roles r ON r.id=u.role_id ORDER BY u.created_at DESC")->fetchAll();
+        $rows = $db->query("SELECT u.id,u.employee_id,u.firebase_uid,u.email,u.display_name,u.contact_number,u.profile_image_url,u.is_active,u.archived_at,u.email_verified_at,u.last_login_at,u.created_at,u.updated_at,r.code AS role_code,r.name AS role_name,COALESCE(s.locked_until>NOW(),0) AS is_locked,s.locked_until FROM users u JOIN roles r ON r.id=u.role_id LEFT JOIN admin_login_security s ON s.email_hash=SHA2(LOWER(TRIM(u.email)),256) ORDER BY u.created_at DESC")->fetchAll();
         Response::json($rows);
     }
     if ($path === '/api/users' && $method === 'POST') {
@@ -272,9 +302,17 @@ try {
     if ($path === '/api/transactions/recover' && $method === 'GET') Response::json($kiosk->recover((string)($_GET['request_id'] ?? ''),$kioskToken));
     if (preg_match('#^/api/transactions/(\d+)$#',$path,$matches) && $method === 'GET') Response::json($kiosk->get((int)$matches[1],$kioskToken));
     if (preg_match('#^/api/transactions/(\d+)/cancel$#',$path,$matches) && $method === 'POST') Response::json($kiosk->cancel((int)$matches[1],$kioskToken));
+    if ($path === '/api/payments/session' && $method === 'GET') {
+        $hardwareAuth();
+        Response::json($kiosk->hardwarePaymentSession());
+    }
     if ($path === '/api/payments/verify' && $method === 'POST') {
         $hardwareAuth(); $body=requestBody();
         Response::json($kiosk->coin((int)($body['transaction_id'] ?? 0),(string)($body['event_id'] ?? ''),$body['coin_amount'] ?? null));
+    }
+    if ($path === '/api/dispense/pending' && $method === 'GET') {
+        $hardwareAuth();
+        Response::json($kiosk->hardwarePendingDispense());
     }
     if (preg_match('#^/api/dispense/(\d+)$#',$path,$matches) && $method === 'POST') { $hardwareAuth(); Response::json($kiosk->sent((int)$matches[1])); }
     if (preg_match('#^/api/dispense/(\d+)/sensor$#',$path,$matches) && $method === 'POST') {
@@ -297,6 +335,8 @@ try {
     if ($path === '/api/reports/inventory.csv' && $method === 'GET') { $auth(['super_admin','admin']); $rows=$medicineQuery(false); $stream=fopen('php://temp','r+'); fputcsv($stream,['Medicine','Category','Quantity','Price','Expiry','Status','Slot']); foreach($rows as $row) fputcsv($stream,[$row['name'],$row['category'],$row['stockQuantity'],number_format($row['price'],2),$row['expiryDate'],$row['status'],$row['slotNumber'] ?? 'Unassigned']); rewind($stream); Response::csv('medidispense-inventory-report.csv',stream_get_contents($stream)); }
 
     Response::error('Route not found.', 404);
+} catch (AdminSecurityError $e) {
+    Response::error($e->getMessage(),$e->status,['code'=>$e->errorCode]);
 } catch (KioskError $e) {
     if (isset($db) && $db->inTransaction()) $db->rollBack();
     Response::error($e->getMessage(), $e->httpStatus, ['code'=>$e->errorCode]);

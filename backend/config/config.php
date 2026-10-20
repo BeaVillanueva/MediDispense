@@ -14,6 +14,7 @@ $config = [
         'password' => getenv('DB_PASSWORD') ?: '',
     ],
     'firebase' => [
+        'web_api_key' => getenv('FIREBASE_WEB_API_KEY') ?: '',
         'project_id' => getenv('FIREBASE_PROJECT_ID') ?: 'medidispense-e4883',
     ],
     'hardware' => [

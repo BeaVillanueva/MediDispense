@@ -27,7 +27,7 @@ export async function createContext(
     try {
       const response = await fetch(`${phpApiUrl}/api/auth/profile`, {
         method: "POST",
-        headers: { Authorization: authorization, "X-MediDispense-RBAC": "1" },
+        headers: { Authorization: authorization, "X-MediDispense-RBAC": "1", Cookie: opts.req.headers.cookie ?? "" },
         signal: AbortSignal.timeout(5000),
       });
       if (response.ok) {

@@ -69,7 +69,7 @@ async function uploadProfilePhoto(
   return storagePut(`profile-photos/${uid}.${extension}`, bytes, contentType);
 }
 async function saveOwnPhoto(
-  ctx: { req: { headers: { authorization?: string } } },
+  ctx: { req: { headers: { authorization?: string; cookie?: string } } },
   url: string
 ) {
   const apiUrl = process.env.MEDIDISPENSE_PHP_API_URL?.replace(/\/$/, "");
@@ -80,6 +80,7 @@ async function saveOwnPhoto(
     method: "POST",
     headers: {
       Authorization: authorization,
+      Cookie: ctx.req.headers.cookie ?? "",
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ profile_image_url: url }),

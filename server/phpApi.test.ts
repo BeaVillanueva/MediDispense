@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
 import { demoEnabled } from "./phpApi";
+import { createContext } from "./_core/context";
 
 const context = {
   req: { headers: { authorization: "Bearer test-only-token" } },
@@ -16,6 +17,14 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 describe("PHP production data boundary", () => {
+  it("forwards the PHP session and denies a Firebase token when PHP reports expiry", async () => {
+    vi.stubEnv("MEDIDISPENSE_PHP_API_URL", "http://php.test");
+    const fetch = vi.fn().mockResolvedValue({ ok: false, status: 401 });
+    vi.stubGlobal("fetch", fetch);
+    const ctx = await createContext({ req: { headers: { authorization: "Bearer test-only-token", cookie: "medidispense_session=test-only-session" } }, res: {} } as Parameters<typeof createContext>[0]);
+    expect(ctx.employeeRole).toBeNull();
+    expect(fetch.mock.calls[0][1].headers.Cookie).toBe("medidispense_session=test-only-session");
+  });
   it("does not expose preview payment or dispense mutations by default", async () => {
     vi.stubEnv("MEDIDISPENSE_DEMO", "false");
     const caller = appRouter.createCaller(context);
