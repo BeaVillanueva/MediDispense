@@ -3,6 +3,11 @@ export type InventoryStatus = "in_stock" | "low_stock" | "out_of_stock" | "near_
 export type TransactionStatus = "payment_pending" | "payment_successful" | "dispensing" | "dispensed" | "failed";
 
 export interface Medicine {
+  /** Live backend readiness of the shared dispensing channel. */
+  machineReady?: boolean;
+  slotReady?: boolean;
+  availableForPurchase?: boolean;
+  unavailableReason?: string | null;
   id: number;
   name: string;
   genericName: string;
@@ -11,6 +16,8 @@ export interface Medicine {
   dosage: string;
   instructions: string;
   stockQuantity: number;
+  /** Available after active reservations; stockQuantity remains recorded on-hand stock in admin views. */
+  availableStockQuantity?: number;
   minimumStockLevel: number;
   price: number;
   expiryDate: string;
@@ -31,6 +38,12 @@ export interface TransactionItem {
 }
 
 export interface Transaction {
+  /** Server-measured seconds since dispatch (or request creation while queued). */
+  dispensingWaitSeconds?: number;
+  /** Explicit admin recovery, never inferred from motor timeout or Firebase alone. */
+  adminRecovered?: boolean;
+  /** Persisted physical count audit; recovery alone does not reopen a slot. */
+  stockReconciled?: boolean;
   databaseId?: number;
   insertedAmount?: number;
   remainingAmount?: number;
@@ -88,8 +101,14 @@ export interface MachineStatus {
 }
 
 export interface Alert {
+  incidentId?: number;
+  details?: Record<string, unknown>;
+  acknowledgedAt?: string | null;
+  resolvedAt?: string | null;
+  resolutionNote?: string | null;
+  emailStatus?: string | null;
   id: number;
-  kind: "low_stock" | "out_of_stock" | "near_expiry" | "expired" | "dispensing_failure" | "system";
+  kind: "low_stock" | "out_of_stock" | "near_expiry" | "expired" | "dispensing_failure" | "stock_added" | "system";
   title: string;
   message: string;
   severity: "info" | "warning" | "danger";

@@ -59,7 +59,7 @@ export const phpMedicines = (ctx: TrpcContext) =>
 export const phpSummary = (ctx: TrpcContext) =>
   phpRequest<DashboardSummary>(ctx, "/api/dashboard/summary");
 export const phpTransactions = (ctx: TrpcContext) =>
-  phpRequest<Transaction[]>(ctx, "/api/transactions?format=client");
+  phpRequest<Transaction[]>(ctx, "/api/transactions?format=client&all=1");
 export async function phpAlerts(ctx: TrpcContext): Promise<Alert[]> {
   const rows = await phpRequest<any[]>(ctx, "/api/notifications");
   return rows.map(r => ({
@@ -70,6 +70,12 @@ export async function phpAlerts(ctx: TrpcContext): Promise<Alert[]> {
     severity: r.severity,
     createdAt: r.created_at,
     read: !!Number(r.is_read),
+    incidentId: r.incident_id ? Number(r.incident_id) : undefined,
+    details: typeof r.details === "string" ? JSON.parse(r.details) : r.details ?? undefined,
+    acknowledgedAt: r.acknowledged_at ?? null,
+    resolvedAt: r.resolved_at ?? null,
+    resolutionNote: r.resolution_note ?? null,
+    emailStatus: r.email_status ?? null,
   }));
 }
 export async function phpMachine(ctx: TrpcContext): Promise<MachineStatus> {

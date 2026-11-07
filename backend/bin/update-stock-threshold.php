@@ -1,0 +1,20 @@
+<?php
+declare(strict_types=1);
+if(PHP_SAPI!=='cli')exit;
+require __DIR__.'/../src/Database.php';
+require __DIR__.'/../src/AlertService.php';
+$config=require __DIR__.'/../config/config.php';$db=Database::connect($config);
+$tables=['inventory','transactions','transaction_items','payments','dispensing_requests','dispensing_logs','stock_movements','machine_slots','machine_status'];
+$hashes=static function()use($db,$tables):array{$out=[];foreach($tables as $table)$out[$table]=hash('sha256',json_encode($db->query("SELECT * FROM $table ORDER BY 1")->fetchAll()));return $out;};
+$before=$hashes();$smtpHash=hash_file('sha256',__DIR__.'/../config/smtp.local.php');
+$old=$db->query('SELECT id,name,minimum_stock_level FROM medicines ORDER BY id')->fetchAll();
+$active=$db->query("SELECT id,details FROM alert_incidents WHERE kind='low_stock' AND resolved_at IS NULL AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(details,'$.is_test')),'false')<>'true'")->fetchAll();
+$sentBefore=$db->query("SELECT id,attempts,sent_at FROM alert_email_jobs WHERE status='sent' ORDER BY id")->fetchAll();
+$db->exec(file_get_contents(__DIR__.'/../../database/migrations/2026_11_08_low_stock_threshold_3.sql'));
+$alerts=new AlertService($db);$alerts->scan();
+foreach($active as $row) $db->prepare("UPDATE alert_incidents SET resolution_note='Resolved under updated low-stock threshold of 3; available stock is above the new threshold. No email resent.' WHERE id=? AND resolved_at IS NOT NULL")->execute([$row['id']]);
+$db->prepare("INSERT INTO activity_logs(actor_type,action,description,metadata) VALUES('system','low_stock_threshold_updated','User-authorized low-stock threshold update to 3; inventory and purchase data unchanged.',?)")->execute([json_encode(['previous_medicine_thresholds'=>$old,'new_threshold'=>3,'previous_active_stock_incidents'=>$active])]);
+$after=$hashes();foreach($before as $table=>$hash)if($after[$table]!==$hash)throw new RuntimeException("Operational table changed during update: $table");
+if(hash_file('sha256',__DIR__.'/../config/smtp.local.php')!==$smtpHash)throw new RuntimeException('SMTP configuration changed.');
+if($sentBefore!==$db->query("SELECT id,attempts,sent_at FROM alert_email_jobs WHERE status='sent' ORDER BY id")->fetchAll())throw new RuntimeException('Sent email history changed during update.');
+echo json_encode(['medicines'=>$db->query('SELECT m.name,m.minimum_stock_level,i.quantity,i.reserved_quantity FROM medicines m JOIN inventory i ON i.medicine_id=m.id ORDER BY m.id')->fetchAll(),'default'=>$db->query("SELECT setting_value FROM system_settings WHERE setting_key='low_stock_default'")->fetchColumn(),'active_real_stock_incidents'=>$db->query("SELECT COUNT(*) FROM alert_incidents WHERE kind='low_stock' AND resolved_at IS NULL AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(details,'$.is_test')),'false')<>'true'")->fetchColumn(),'operational_tables_unchanged'=>true,'smtp_unchanged'=>true,'sent_email_history_unchanged'=>true],JSON_PRETTY_PRINT).PHP_EOL;

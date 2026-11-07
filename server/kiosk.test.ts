@@ -4,6 +4,7 @@ import {
   mayLeavePayment,
   paymentStatus,
   purchaseTotal,
+  purchasable,
   quantityLimit,
   remainingAmount,
   reviewPurchase,
@@ -11,6 +12,14 @@ import {
 
 describe("Kiosk single-medicine coin purchase", () => {
   beforeEach(() => vi.resetModules());
+  it("re-enables stocked medicines after backend readiness returns", async () => {
+    const { store } = await import("./medidispenseStore");
+    const medicine = store.getMedicine(1)!;
+    expect(purchasable({ ...medicine, machineReady: false })).toBe(false);
+    expect(purchasable({ ...medicine, machineReady: true })).toBe(true);
+    expect(purchasable({ ...medicine, machineReady: true, stockQuantity: 0 })).toBe(false);
+    expect(purchasable({ ...medicine, machineReady: true, enabled: false })).toBe(false);
+  });
 
   it("keeps a blocked slot unavailable after inventory refresh", async () => {
     const { store } = await import("./medidispenseStore");

@@ -3,7 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  FlaskConical,
+  Pill,
   LoaderCircle,
   ShoppingBag,
 } from "lucide-react";
@@ -20,12 +20,13 @@ import { useKioskCheckout } from "@/hooks/useKioskCheckout";
 import {
   Confirmation,
   MedicineImage,
-  NoChangeNotice,
   QuantityPicker,
-  SafetyNotice,
 } from "@/components/kiosk/KioskControls";
 import { CheckoutPanel } from "@/components/kiosk/CheckoutPanel";
+import { recoveryConfirmed } from "@/lib/dispensingTimeout";
+import { medicineLabelDetails } from "@/lib/medicineInformation";
 import "./kiosk.css";
+import "./kiosk-theme.css";
 
 export default function Kiosk() {
   const medicines = useKioskMedicines();
@@ -38,15 +39,21 @@ export default function Kiosk() {
   const [confirmation, setConfirmation] = useState(false);
   const [notice, setNotice] = useState("");
   const [checking, setChecking] = useState(false);
+  const [browseWhileUnresolved, setBrowseWhileUnresolved] = useState(false);
   const checkLock = useRef(false);
   const main = useRef<HTMLElement>(null);
-  const catalog = medicines.data ?? [];
+  const catalog = [...(medicines.data ?? [])].sort(
+    (a, b) => (a.slotNumber ?? Number.MAX_SAFE_INTEGER) - (b.slotNumber ?? Number.MAX_SAFE_INTEGER) || a.id - b.id
+  );
   const selected = catalog.find(item => item.id === selectedId);
+  const reviewLabel = medicineLabelDetails(purchase?.selectedMedicine);
   const maximum = selected ? quantityLimit(selected) : 0;
   const selectedQuantity = Math.max(1, Math.min(quantity, maximum));
   const busy = checkout.busy || checking;
   const transaction = checkout.transaction;
-  const stage = transaction
+  const machineAwaitingRecovery = catalog.some(medicine => medicine.machineReady === false);
+  const browsingSavedPurchase = browseWhileUnresolved && !!transaction && ["pending", "dispensing"].includes(transaction.dispensingStatus);
+  const stage = browsingSavedPurchase ? 0 : transaction
     ? checkout.paymentStatus === "SUCCESS"
       ? 4
       : transaction.paymentStatus === "successful"
@@ -73,6 +80,7 @@ export default function Kiosk() {
   }, [maximum, view]);
   const reset = async () => {
     if (!(await checkout.reset())) return;
+    setBrowseWhileUnresolved(false);
     setPurchase(null);
     setSelectedId(null);
     setQuantity(1);
@@ -81,6 +89,11 @@ export default function Kiosk() {
     setCategory("All medicines");
     void medicines.refetch();
   };
+  useEffect(() => {
+    if ((recoveryConfirmed(transaction) || (browseWhileUnresolved && transaction?.dispensingStatus === "failed")) && !checkout.busy && !checkout.error) {
+      void reset();
+    }
+  }, [transaction?.adminRecovered, transaction?.dispensingStatus, browseWhileUnresolved, checkout.busy, checkout.error]);
   const buyNow = () => {
     if (
       !selected ||
@@ -130,33 +143,31 @@ export default function Kiosk() {
       <header className="kv-header">
         <div className="kv-brand">
           <span className="kv-brand-icon">
-            <FlaskConical size={28} />
+            <Pill size={30} />
           </span>
           <div>
             <strong>
               Medi<span>Dispense</span>
             </strong>
-            <small>Your self-service medicine station</small>
+            <small>Medicine Vending Kiosk</small>
           </div>
         </div>
         <span className="kv-preview-label">
           Customer kiosk · Coin payment only
         </span>
       </header>
-      <div className="kv-preview-banner">
-        {checkout.simulationEnabled
-          ? "Development preview · Sample inventory and simulated coins. No real money or medicine is dispensed."
-          : "Preview catalog · Coin payment is unavailable until the physical payment service is connected. Do not insert coins."}
-      </div>
+      {checkout.preview && <div className="kv-preview-banner">
+        Development preview · Sample inventory and simulated coins. No real money or medicine is dispensed.
+      </div>}
       <main className="kv-main" ref={main} tabIndex={-1}>
         <nav aria-label="Purchase progress">
           <ol className="kv-steps">
             {[
-              "Choose medicine",
-              "Review purchase",
-              "Coin payment",
-              "Dispensing",
-              "Success",
+              "Choose",
+              "Review",
+              "Payment",
+              "Dispense",
+              "Complete",
             ].map((label, index) => (
               <li
                 key={label}
@@ -192,10 +203,12 @@ export default function Kiosk() {
             {transaction && <strong> Reference: {transaction.id}</strong>}
           </div>
         )}
-        {transaction ? (
+        {transaction && !browsingSavedPurchase ? (
           <CheckoutPanel
             checkout={checkout}
+            medicine={catalog.find(medicine => medicine.id === transaction.items[0]?.medicineId && medicine.name === transaction.items[0]?.medicineName)}
             onFinish={reset}
+            onBrowse={() => { setBrowseWhileUnresolved(true); setView("browse"); setSelectedId(null); setPurchase(null); setQuantity(1); setCategory("All medicines"); }}
             onBack={async () => {
               if (await checkout.reset()) {
                 setView(purchase ? "review" : "browse");
@@ -222,20 +235,19 @@ export default function Kiosk() {
               <>
                 <section className="kv-intro">
                   <div>
-                    <p className="kv-eyebrow">Care within reach</p>
+                    <p className="kv-eyebrow">Welcome to MediDispense</p>
                     <h1>What do you need today?</h1>
                     <p>
-                      Select one medicine, read its information, and choose your
-                      quantity.
+                      Choose your medicine to get started.
                     </p>
                   </div>
-                  <span className="kv-inventory-note">
-                    {medicines.isPending
+                  {(browsingSavedPurchase || machineAwaitingRecovery || medicines.isPending || medicines.isError) && <span className="kv-inventory-note">
+                    {browsingSavedPurchase ? <button className="kv-button kv-secondary" onClick={() => setBrowseWhileUnresolved(false)}>Machine needs assistance · View purchase</button> : machineAwaitingRecovery ? "Machine awaiting staff recovery" : medicines.isPending
                       ? "Checking availability…"
                       : medicines.isError
                         ? "Connection interrupted"
                         : "Availability refreshes automatically"}
-                  </span>
+                  </span>}
                 </section>
                 {catalog.length > 0 && (
                   <div
@@ -293,10 +305,6 @@ export default function Kiosk() {
                           <div className="kv-product-copy">
                             <p className="kv-eyebrow">{medicine.category}</p>
                             <h2>{medicine.name}</h2>
-                            <p>
-                              {medicine.genericName ||
-                                "Generic information not provided"}
-                            </p>
                             <div className="kv-product-price">
                               <strong>{peso(medicine.price)}</strong>
                               <span>per unit</span>
@@ -306,11 +314,12 @@ export default function Kiosk() {
                             >
                               {purchasable(medicine)
                                 ? `${medicine.stockQuantity} available`
-                                : "Currently unavailable"}
+                                : medicine.unavailableReason ?? (medicine.stockQuantity < 1 ? "Out of stock" : "Currently unavailable")}
                             </p>
                             <button
                               className="kv-button kv-primary kv-wide"
                               disabled={
+                                browsingSavedPurchase ||
                                 busy ||
                                 !!checkout.error ||
                                 medicines.isError ||
@@ -324,14 +333,13 @@ export default function Kiosk() {
                                 setView("details");
                               }}
                             >
-                              Select medicine <ArrowRight size={20} />
+                              Select <ArrowRight size={20} />
                             </button>
                           </div>
                         </article>
                       ))}
                   </div>
                 )}
-                <SafetyNotice />
               </>
             )}
 
@@ -361,34 +369,16 @@ export default function Kiosk() {
                         {selected.category} · Slot {selected.slotNumber}
                       </p>
                       <h1>{selected.name}</h1>
-                      <p>{selected.genericName}</p>
                       <div className="kv-detail-price">
                         {peso(selected.price)} <span>per unit</span>
                       </div>
                       <p className="kv-stock">
                         {selected.stockQuantity} available
                       </p>
-                      <div className="kv-information">
-                        <h2>Medicine information</h2>
-                        <p>
-                          {selected.description || "No description provided."}
-                        </p>
-                        <h2>Stored dosage & usage information</h2>
-                        <p>
-                          {selected.dosage || "No dosage information provided."}
-                        </p>
-                        <p>{selected.instructions}</p>
-                        {selected.expiryDate && (
-                          <p>
-                            <strong>Expiry date:</strong> {selected.expiryDate}
-                          </p>
-                        )}
-                      </div>
-                      <SafetyNotice />
                       <div className="kv-quantity-section">
                         <h2>Choose quantity</h2>
                         <p className="kv-quantity-hint">
-                          Up to {maximum} per purchase · Maximum 3 tablets
+                          Up to {maximum} per purchase
                         </p>
                         <QuantityPicker
                           value={selectedQuantity}
@@ -421,7 +411,7 @@ export default function Kiosk() {
                         }
                         onClick={buyNow}
                       >
-                        Buy Now <ArrowRight size={20} />
+                        Add to Review <ArrowRight size={20} />
                       </button>
                     </div>
                   </section>
@@ -437,8 +427,9 @@ export default function Kiosk() {
             )}
             {view === "review" && purchase && (
               <section className="kv-panel kv-purchase-review">
-                <p className="kv-eyebrow">Before inserting coins</p>
                 <h1>Review purchase</h1>
+                <section className="kv-review-information" aria-labelledby="review-information-title">
+                <h2 id="review-information-title">Medicine Information</h2>
                 <div className="kv-review-medicine">
                   <div className="kv-medicine-thumbnail">
                     <MedicineImage
@@ -448,7 +439,11 @@ export default function Kiosk() {
                   </div>
                   <div>
                     <h2>{purchase.selectedMedicine.name}</h2>
-                    <p>{purchase.selectedMedicine.genericName}</p>
+                    <dl className="kv-label-details">
+                      <div><dt>Category</dt><dd>{purchase.selectedMedicine.category || "Not specified"}</dd></div>
+                      <div><dt>Strength</dt><dd>{reviewLabel.strength || "Refer to packaging"}</dd></div>
+                      {reviewLabel.type && <div><dt>Type</dt><dd>{reviewLabel.type}</dd></div>}
+                    </dl>
                   </div>
                 </div>
                 <dl className="kv-review-totals">
@@ -465,22 +460,11 @@ export default function Kiosk() {
                     <dd>{peso(purchase.totalAmount)}</dd>
                   </div>
                 </dl>
-                <NoChangeNotice />
-                <p>
-                  You can change your selection or cancel before inserting
-                  coins. Once payment begins, inserted coins cannot be returned.
-                </p>
+                </section>
                 {changed && (
                   <div className="kv-message kv-error" role="alert">
                     Price or stock changed. Go back and review your selection
                     again.
-                  </div>
-                )}
-                {!checkout.preview && (
-                  <div className="kv-message" role="status">
-                    Your purchase will be saved in the database. Payment waits
-                    for trusted coin acceptor events. Hardware integration is
-                    pending.
                   </div>
                 )}
                 <div className="kv-actions">

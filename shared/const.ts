@@ -35,3 +35,4 @@ export const decodeOAuthState = (state: string): OAuthState => {
   }
   return { redirectUri: decoded };
 };
+export const DEFAULT_LOW_STOCK_THRESHOLD = 3;

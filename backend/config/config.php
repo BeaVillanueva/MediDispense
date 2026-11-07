@@ -20,7 +20,10 @@ $config = [
     'hardware' => [
         'api_key' => getenv('HARDWARE_API_KEY') ?: '',
     ],
+    'alerts' => ['timeout_seconds'=>max(10,(int)(getenv('ALERT_DISPENSE_TIMEOUT_SECONDS')?:120))],
 ];
 
 $local = __DIR__ . '/local.php';
-return is_file($local) ? array_replace_recursive($config, require $local) : $config;
+$config = is_file($local) ? array_replace_recursive($config, require $local) : $config;
+$config['smtp'] = (require __DIR__.'/smtp.php')($config['smtp'] ?? []);
+return $config;

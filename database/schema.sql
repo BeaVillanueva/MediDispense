@@ -51,7 +51,7 @@ CREATE TABLE medicines (
   image_url VARCHAR(500) NULL,
   unit_price DECIMAL(10,2) NOT NULL DEFAULT 0,
   expiry_date DATE NOT NULL,
-  minimum_stock_level INT UNSIGNED NOT NULL DEFAULT 0,
+  minimum_stock_level INT UNSIGNED NOT NULL DEFAULT 3,
   is_enabled TINYINT(1) NOT NULL DEFAULT 1,
   created_by BIGINT UNSIGNED NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -227,7 +227,7 @@ CREATE TABLE activity_logs (
 
 CREATE TABLE notifications (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  notification_type ENUM('low_stock','out_of_stock','near_expiry','expired','dispensing_failure','payment_failure','system_error') NOT NULL,
+  notification_type ENUM('low_stock','out_of_stock','near_expiry','expired','dispensing_failure','payment_failure','system_error','stock_added') NOT NULL,
   title VARCHAR(160) NOT NULL,
   message TEXT NOT NULL,
   severity ENUM('info','warning','danger') NOT NULL DEFAULT 'info',
@@ -256,7 +256,7 @@ INSERT INTO medicine_categories (name) VALUES ('Pain Relief'),('Fever'),('Cold a
 INSERT INTO machines (machine_code, name, location, firmware_version) VALUES ('MD-001','MediDispense-01','Capstone laboratory','0.9.0');
 INSERT INTO machine_status (machine_id, connection_status, esp32_status, motor_status, sensor_status, coin_acceptor_status, last_communication_at) VALUES (1,'online','Ready','Idle','Monitoring','Ready',CURRENT_TIMESTAMP);
 INSERT INTO machine_slots (machine_id, slot_number, motor_id, sensor_id, slot_status) VALUES (1,1,'MOTOR-1','IR-1','ready'),(1,2,'MOTOR-2','IR-2','ready'),(1,3,'MOTOR-3','IR-3','low');
-INSERT INTO system_settings (setting_key, setting_value) VALUES ('currency','PHP'),('near_expiry_days','30'),('machine_offline_seconds','60'),('low_stock_default','10');
+INSERT INTO system_settings (setting_key, setting_value) VALUES ('currency','PHP'),('near_expiry_days','30'),('machine_offline_seconds','60'),('low_stock_default','3');
 
 SET FOREIGN_KEY_CHECKS = 1;
 

@@ -1,7 +1,13 @@
 <?php
 declare(strict_types=1);
 
-final class FirebaseRealtimeDatabase
+interface DispenseCommandGateway
+{
+    public function sendDispenseCommand(int $requestId, int $slot, int $quantity): array;
+    public function retireDispenseCommand(int $requestId): void;
+}
+
+final class FirebaseRealtimeDatabase implements DispenseCommandGateway
 {
     private string $databaseUrl;
 
@@ -53,7 +59,49 @@ final class FirebaseRealtimeDatabase
         return $this->put('/dispense', $payload);
     }
 
-    private function put(string $path, array $data): array
+    /** Retire only the selected command. Never write a pending command here. */
+    public function retireDispenseCommand(int $requestId): void
+    {
+        $etag = null;
+        $ch = curl_init($this->databaseUrl . '/dispense.json');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 10,
+            CURLOPT_HTTPHEADER => ['X-Firebase-ETag: true'],
+            CURLOPT_HEADERFUNCTION => static function ($curl, string $line) use (&$etag): int {
+                if (stripos($line, 'ETag:') === 0) $etag = trim(substr($line, 5));
+                return strlen($line);
+            },
+        ]);
+        $response = curl_exec($ch);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($response === false || $code !== 200 || !$etag) {
+            throw new RuntimeException('Cannot verify Firebase command. Recovery was not completed; keep the controller disconnected.');
+        }
+        $command = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+        if ($command !== null && !is_array($command)) throw new RuntimeException('Invalid Firebase command; recovery stopped.');
+        if ($command !== null && (int)($command['request_id'] ?? 0) !== $requestId) {
+            // Do not overwrite another request, including one currently pending.
+            if (in_array($command['status'] ?? '', ['pending','dispensing'], true)) throw new RuntimeException('Another Firebase command is active. Keep the controller disconnected and reconcile that request first.');
+        }
+        if ($command !== null && (int)($command['request_id'] ?? 0) === $requestId) {
+            $command['status'] = 'failed';
+            $command['slot'] = 0;
+            $command['quantity'] = 0;
+            // Keep request_id and reported dispensed count for investigation.
+            $this->put('/dispense', $command, ['if-match: ' . $etag]);
+        }
+        // Retain a request-specific terminal result even after /dispense is reused.
+        // A failed write prevents the caller from committing or unlocking the kiosk.
+        $this->put('/dispense_results/' . $requestId, [
+            'request_id' => $requestId, 'status' => 'failed',
+            'source' => 'admin_recovery', 'hardware_disabled_confirmed' => true,
+        ]);
+    }
+
+    private function put(string $path, array $data, array $headers = []): array
     {
         $url = $this->databaseUrl
             . '/'
@@ -76,9 +124,7 @@ final class FirebaseRealtimeDatabase
         curl_setopt_array($ch, [
             CURLOPT_CUSTOMREQUEST => 'PUT',
             CURLOPT_POSTFIELDS => $json,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-            ],
+            CURLOPT_HTTPHEADER => array_merge(['Content-Type: application/json'], $headers),
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_TIMEOUT => 10,

@@ -410,6 +410,10 @@
   height: 100%;
   object-fit: contain;
 }
+.kv-product-image img {
+  display: block;
+  object-fit: fill;
+}
 .kv-product-image > span {
   position: absolute;
   left: 16px;

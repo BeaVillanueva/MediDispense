@@ -119,9 +119,17 @@ client/public/__manus__/version.json
 # PHP dependencies
 backend/vendor/
 backend/config/local.php
+backend/config/smtp.local.php
 **/service-account*.json
 **/*serviceAccount*.json
 *.pem
 *.key
 esp32/secrets.h
 tmp-tracked-files.txt
+
+# Local database backups
+*.sql.bak
+medidispense_backup_before_admin_security.sql
+
+# Uploaded profile photos
+backend/public/manus-storage/profile-photos/

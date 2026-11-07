@@ -65,7 +65,13 @@ The API validates the token signature against Google Secure Token certificates, 
 
 New accounts receive `staff`. To bootstrap one development Super Admin using a verified existing account, follow [the local setup instructions](docs/DEVELOPMENT_SUPER_ADMIN.md). Automatic owner promotion by email is disabled. Older databases may need the existing `database/migrations/2026_09_24_employee_rbac.sql` role normalization and `database/migrations/2026_09_25_employee_profile.sql` Employee ID migration; do not rerun migrations already applied. The Super Admin bootstrap itself requires no new migration. The existing `users.profile_image_url` field is reused for profile photos.
 
-The Node/tRPC server must also have `MEDIDISPENSE_PHP_API_URL` set to the PHP API base URL (the same value as `VITE_API_BASE_URL`). It verifies each Firebase bearer token through the PHP profile endpoint before serving employee dashboard procedures. Production dashboard procedures fail closed if this bridge is not configured.
+The Node/tRPC server uses `MEDIDISPENSE_PHP_API_URL`, falling back to `VITE_API_BASE_URL`. It verifies each Firebase bearer token through the PHP profile endpoint before serving employee dashboard procedures. Production dashboard procedures fail closed if this bridge is not configured.
+
+For XAMPP LAN development, keep `VITE_API_BASE_URL=http://localhost/medidispense/backend/public` in `.env.local`. In Vite development mode, an empty or local API configuration follows the browser hostname automatically: `http://localhost:3000` uses PHP on localhost port 80, while `http://192.168.1.65:3000` uses PHP on that IP at `/medidispense/backend/public`. The Node bridge still connects to localhost on the laptop; it does not use browser-controlled host headers to choose its backend.
+
+Restart `pnpm run dev` after configuration changes. Start Apache and MySQL in XAMPP. On another device connected to the same Wi-Fi, open `http://<laptop-current-IP>:3000`, sign in, and check that browser Network requests target `http://<laptop-current-IP>/medidispense/backend/public/api/...`. Windows Firewall must permit the local development server on port 3000 and Apache on port 80 on your private network. Cookies are separate for localhost and the LAN IP, so sign in separately on each.
+
+PHP automatically permits development origins on ports 3000, 3001, and 5173 only when the origin hostname matches the backend hostname and, for LAN IPv4 addresses, PHP's actual private server address. This rule requires `app_env=development`; explicit `cors_origins` remain supported. Production should set `app_env=production`, an explicit HTTPS `VITE_API_BASE_URL` and `MEDIDISPENSE_PHP_API_URL`, and an exact `cors_origins` allowlist. No wildcard credentialed CORS is used.
 
 ## Employee role boundaries
 

@@ -1,3 +1,4 @@
+import type { InventoryReportData } from "@shared/inventoryReport";
 import {
   demoEnabled,
   phpRequest,
@@ -8,7 +9,7 @@ import {
   phpMachine,
 } from "./phpApi";
 import { TRPCError } from "@trpc/server";
-import { COOKIE_NAME } from "@shared/const";
+import { COOKIE_NAME, DEFAULT_LOW_STOCK_THRESHOLD } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { z } from "zod";
 import { systemRouter } from "./_core/systemRouter";
@@ -24,8 +25,8 @@ const medicineInput = z.object({
   description: z.string().min(5),
   dosage: z.string().min(5),
   instructions: z.string().min(5),
-  stockQuantity: z.number().int().min(0),
-  minimumStockLevel: z.number().int().min(0),
+  stockQuantity: z.number().int().min(0).max(10),
+  minimumStockLevel: z.number().int().min(0).default(DEFAULT_LOW_STOCK_THRESHOLD),
   price: z.number().min(0),
   expiryDate: z.string(),
   imageUrl: z.string().url().or(z.literal("")),
@@ -143,6 +144,19 @@ export const appRouter = router({
     ),
   }),
   medicines: router({
+    options: permissionProcedure("medicines.edit").query(({ ctx }) => phpRequest<{ categories: string[]; slots: { slot_number: number; medicine_id: number | null }[] }>(ctx, "/api/medicine-options")),
+    update: permissionProcedure("medicines.edit")
+      .input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(180), category: z.string().trim().min(1), price: z.number().finite().min(0).max(99999999.99), expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), slotNumber: z.number().int().positive().nullable() }))
+      .mutation(({ ctx, input }) => {
+        if (demoEnabled()) throw new TRPCError({ code: "BAD_REQUEST", message: "Catalog editing requires the PHP database connection." });
+        return phpRequest(ctx, `/api/medicines/${input.id}`, "PATCH", { name: input.name, category_name: input.category, unit_price: input.price, expiry_date: input.expiryDate, slot_number: input.slotNumber });
+      }),
+    archive: permissionProcedure("medicines.archive")
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => {
+        if (demoEnabled()) throw new TRPCError({ code: "BAD_REQUEST", message: "Catalog deletion requires the PHP database connection." });
+        return phpRequest(ctx, `/api/medicines/${input.id}`, "DELETE");
+      }),
     list: permissionProcedure("medicines.view").query(({ ctx }) =>
       demoEnabled() ? store.listMedicines(true) : phpMedicines(ctx)
     ),
@@ -174,6 +188,15 @@ export const appRouter = router({
       }),
   }),
   inventory: router({
+    restock: permissionProcedure("inventory.adjust")
+      .input(z.object({ medicineId: z.number().int().positive(), quantity: z.number().int().positive().max(10) }))
+      .mutation(async ({ ctx, input }) => {
+        if (demoEnabled()) { const current = store.getMedicine(input.medicineId); if (!current || current.stockQuantity + input.quantity > 10) throw new TRPCError({ code: "BAD_REQUEST", message: "Stock cannot exceed 10 items." }); return store.adjustStock(input.medicineId, input.quantity, "Restock"); }
+        await phpRequest(ctx, "/api/inventory/adjust", "PATCH", {
+          medicine_id: input.medicineId, delta: input.quantity, reason: "Restock", operation: "restock",
+        });
+        return (await phpMedicines(ctx)).find(item => item.id === input.medicineId)!;
+      }),
     adjust: permissionProcedure("inventory.adjust")
       .input(
         z.object({
@@ -183,8 +206,7 @@ export const appRouter = router({
         })
       )
       .mutation(async ({ ctx, input }) => {
-        if (demoEnabled())
-          return store.adjustStock(input.medicineId, input.delta, input.reason);
+        if (demoEnabled()) { const current = store.getMedicine(input.medicineId); if (input.delta > 0 && (!current || current.stockQuantity + input.delta > 10)) throw new TRPCError({ code: "BAD_REQUEST", message: "Stock cannot exceed 10 items." }); return store.adjustStock(input.medicineId, input.delta, input.reason); }
         await phpRequest(ctx, "/api/inventory/adjust", "PATCH", {
           medicine_id: input.medicineId,
           delta: input.delta,
@@ -196,6 +218,13 @@ export const appRouter = router({
       }),
   }),
   transactions: router({
+    recoverStopped: permissionProcedure("inventory.adjust")
+      .input(z.object({ id: z.number().int().positive(), transactionCode: z.string().min(1), motorStopped: z.literal(true), controllerDisconnected: z.literal(true), reason: z.string().trim().min(5).max(500), physicalStock: z.number().int().min(0).max(10).optional() }))
+      .mutation(({ ctx, input }) => phpRequest(ctx, `/api/transactions/${input.id}/recover-stopped`, "POST", {
+        transaction_code: input.transactionCode, motor_stopped: input.motorStopped,
+        controller_disconnected: input.controllerDisconnected, reason: input.reason,
+        ...(input.physicalStock === undefined ? {} : { physical_stock: input.physicalStock }),
+      })),
     list: permissionProcedure("transactions.view").query(({ ctx }) =>
       demoEnabled() ? store.listTransactions() : phpTransactions(ctx)
     ),
@@ -251,11 +280,30 @@ export const appRouter = router({
     ),
   }),
   notifications: router({
+    dismissAll: permissionProcedure("dashboard.view")
+      .input(z.object({throughId:z.number().int().positive()}))
+      .mutation(({ctx,input})=>phpRequest<{dismissed:number}>(ctx,"/api/notifications/dismiss-all","POST",{through_id:input.throughId})),
+    manage: permissionProcedure("dashboard.view")
+      .input(z.object({ id: z.number().int().positive(), action: z.enum(["read","acknowledge","resolve"]), reason: z.string().max(500).optional() }))
+      .mutation(({ctx,input})=>phpRequest(ctx, `/api/notifications/${input.id}/${input.action}`, "POST", { reason: input.reason ?? "" })),
+    status: permissionProcedure("dashboard.view").query(({ctx})=>phpRequest<{installed:boolean;smtpConfigured:boolean;workerLastSeen:string|null;workerOnline:boolean}>(ctx,"/api/notifications/status")),
+    recipients: permissionProcedure("settings.manage").query(({ctx})=>phpRequest<{id:number;display_name:string;email:string;role_code:string;low_stock:number;dispensing_failure:number}[]>(ctx,"/api/notifications/recipients")),
+    saveRecipients: permissionProcedure("settings.manage")
+      .input(z.array(z.object({user_id:z.number().int().positive(),low_stock:z.boolean(),dispensing_failure:z.boolean()})).max(100))
+      .mutation(({ctx,input})=>phpRequest(ctx,"/api/notifications/recipients","PUT",{recipients:input})),
+    emailJobs: permissionProcedure("settings.manage").query(({ctx})=>phpRequest<{id:number;incident_id:number;recipient:string;status:string;attempts:number;last_error:string|null;history:{attempted_at:string;outcome:string;detail:string|null}[]}[]>(ctx,"/api/notifications/email-jobs")),
+    retryEmail: permissionProcedure("settings.manage")
+      .input(z.object({id:z.number().int().positive(),reason:z.string().min(5).max(500),providerNotAccepted:z.literal(true)}))
+      .mutation(({ctx,input})=>phpRequest(ctx,`/api/notifications/email-jobs/${input.id}/retry`,"POST",{reason:input.reason,provider_not_accepted:input.providerNotAccepted})),
     list: permissionProcedure("dashboard.view").query(({ ctx }) =>
       demoEnabled() ? store.listAlerts() : phpAlerts(ctx)
     ),
   }),
   reports: router({
+    inventory: permissionProcedure("reports.view").query(({ ctx }) => phpRequest<InventoryReportData>(ctx, "/api/reports/inventory")),
+    activity: permissionProcedure("reports.export")
+      .input(z.object({ event: z.enum(["generated", "exported"]), report_type: z.enum(["all", "inventory", "transactions", "sales"]), record_count: z.number().int().nonnegative(), start_date: z.string(), end_date: z.string(), status: z.string(), payment: z.string(), medicine: z.string().max(200), search: z.string().max(200) }))
+      .mutation(({ ctx, input }) => phpRequest(ctx, "/api/reports/activity", "POST", input)),
     basic: permissionProcedure("reports.basic.view").query(async ({ ctx }) => {
       if (!demoEnabled()) {
         const r = await phpRequest<any>(ctx, "/api/reports/basic");

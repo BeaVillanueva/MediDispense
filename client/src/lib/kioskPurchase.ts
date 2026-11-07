@@ -28,6 +28,9 @@ export const SUCCESS_RESET_SECONDS = 20;
 export function purchasable(medicine: Medicine) {
   return (
     medicine.enabled &&
+    medicine.machineReady !== false &&
+    medicine.slotReady !== false &&
+    medicine.availableForPurchase !== false &&
     medicine.slotNumber !== null &&
     medicine.stockQuantity > 0 &&
     medicine.status !== "expired" &&

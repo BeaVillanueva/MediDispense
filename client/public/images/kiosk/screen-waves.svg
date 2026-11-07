@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="900" viewBox="0 0 1440 900" preserveAspectRatio="none">
+  <defs>
+    <radialGradient id="base"><stop stop-color="#ffffff"/><stop offset=".68" stop-color="#f3f9ff"/><stop offset="1" stop-color="#e4f2ff"/></radialGradient>
+    <linearGradient id="wave" x2="1" y2="1"><stop stop-color="#d7eeff"/><stop offset="1" stop-color="#b6dfff"/></linearGradient>
+  </defs>
+  <path fill="url(#base)" d="M0 0h1440v900H0z"/>
+  <path fill="#d5edff" d="M0 0h407C315 16 350 78 244 115S83 119 0 232Z"/>
+  <path fill="#bfe4ff" opacity=".65" d="M0 0h275C220 42 266 88 154 112S48 147 0 183Z"/>
+  <path fill="#e5f4ff" d="M240 0h300C429 13 430 91 345 107S228 110 162 153C233 91 241 41 240 0Z"/>
+  <path fill="#c7e7ff" opacity=".8" d="M1000 0h440v293c-62-99-106-91-151-117C1176 115 1306 32 1000 0Z"/>
+  <path fill="#e6f5ff" d="M1123 0h185c26 51-12 82 45 128s64 39 87 91v111c-21-91-85-101-127-135C1219 116 1314 39 1123 0Z"/>
+  <path fill="#d5edff" d="M0 577c128 18 123 144 266 181s188 62 239 142H0Z"/>
+  <path fill="url(#wave)" d="M0 681c108 3 138 97 244 114s158 53 189 105H0Z"/>
+  <path fill="#eaf7ff" opacity=".8" d="M0 757c153-13 154 101 345 143H191C89 858 96 825 0 827Z"/>
+  <path fill="#d5edff" d="M876 900c63-62 129-100 224-118s153-98 340-130v248Z"/>
+  <path fill="url(#wave)" d="M997 900c118-94 253-80 443-173v173Z"/>
+  <path fill="#a6d9ff" opacity=".45" d="M1208 900c84-67 156-59 232-104v104Z"/>
+</svg>
