@@ -5,9 +5,12 @@ import {
   kioskApi,
   newPurchaseSession,
   purchaseSessionKey,
+  purchaseSessionKeys,
   type PurchaseSession,
 } from "@/lib/kioskApi";
-import { kioskDemo } from "@/lib/apiConfig";
+import { apiBaseUrl, kioskDemo } from "@/lib/apiConfig";
+import { KioskSessionError, readPurchaseSession, persistPurchaseSession, removePurchaseSession } from "@/lib/kioskSession";
+import { logKioskDiagnostic } from "@/lib/kioskDiagnostics";
 import {
   mayLeavePayment,
   paymentStatus,
@@ -22,6 +25,8 @@ export function useKioskCheckout() {
   const [busy, setBusy] = useState(false);
   const [recovering, setRecovering] = useState(!kioskDemo);
   const [error, setError] = useState<string | null>(null);
+  const [recoveryMessage,setRecoveryMessage]=useState<string|null>(null);
+  const [canRetrySavedCheckout,setCanRetrySavedCheckout]=useState(false);
   const session = useRef<PurchaseSession | null>(null);
   const current = useRef<Transaction | null>(null);
   const locked = useRef(false);
@@ -31,40 +36,38 @@ export function useKioskCheckout() {
     setTransaction(value);
   }, []);
   const clear = useCallback(() => {
+    try {removePurchaseSession(purchaseSessionKeys);} catch(e) {setError(e instanceof Error?e.message:"Unable to clear saved session.");return false;}
     generation.current++;
-    localStorage.removeItem(purchaseSessionKey);
     session.current = null;
     current.current = null;
     setTransaction(null);
     setError(null);
+    setRecoveryMessage(null);setCanRetrySavedCheckout(false);
+    return true;
   }, []);
-  const recover = useCallback(async () => {
+  const recover = useCallback(async (manual=false) => {
     if (locked.current) return;
     locked.current = true;
     setRecovering(true);
-    setError(null);
+    setRecoveryMessage(null);setCanRetrySavedCheckout(false);
+    const recoveryStarted=performance.now();
     try {
-      const raw = localStorage.getItem(purchaseSessionKey);
-      if (!raw) {
-        session.current = null;
+      const saved = session.current ?? readPurchaseSession(purchaseSessionKeys);
+      if (!saved) {
+        if(manual){setError(null);setRecoveryMessage("No saved purchase was found in this browser. Retry from review only if no coins were inserted; otherwise ask staff for assistance.");logKioskDiagnostic({operation:"recover_prepare",url:`${apiBaseUrl}/api/transactions/recover`,status:null,category:"no_saved_session",durationMs:performance.now()-recoveryStarted});}
         return;
       }
-      const saved = JSON.parse(raw) as PurchaseSession;
       session.current = saved;
-      let value: Transaction;
-      try {
-        value = await kioskApi.recover(saved);
-      } catch (e) {
-        if (e instanceof KioskApiError && e.code === "TRANSACTION_NOT_FOUND")
-          value = await kioskApi.checkout(saved);
-        else throw e;
-      }
+      const value = await kioskApi.recover(saved);
       save(value);
       setError(null);
-    } catch {
-      setError(
-        "Unable to recover your purchase. Do not insert coins. Reconnect to check its status or ask pharmacy staff for help."
-      );
+      if(manual)setRecoveryMessage("Purchase recovered. Showing the latest confirmed server status.");
+    } catch(e) {
+      if(e instanceof KioskSessionError)logKioskDiagnostic({operation:"recover_prepare",url:`${apiBaseUrl}/api/transactions/recover`,status:null,category:e.code,durationMs:performance.now()-recoveryStarted});
+      if(e instanceof KioskApiError && e.status===404 && e.code==="TRANSACTION_NOT_FOUND") {
+        setCanRetrySavedCheckout(!current.current);
+        setError(current.current?"The original purchase could not be found on this server. Do not start another purchase; ask staff to check the API configuration.":"The saved checkout was not found on the server. You may explicitly retry the same saved request below. Do not insert coins until checkout is confirmed.");
+      } else setError(e instanceof KioskSessionError?e.message:`Unable to recover the saved purchase. ${e instanceof KioskApiError?e.message:"Reconnect or ask staff for assistance."} Do not insert coins.`);
     } finally {
       locked.current = false;
       setRecovering(false);
@@ -136,16 +139,14 @@ export function useKioskCheckout() {
     if (locked.current || recovering || error) return false;
     const t = current.current;
     if (!t) {
-      clear();
-      return true;
+      return clear();
     }
     if (
       t.dispensingStatus === "dispensed" ||
       t.dispensingStatus === "failed" ||
       t.paymentStatus === "cancelled"
     ) {
-      clear();
-      return true;
+      return clear();
     }
     if (!mayLeavePayment(t, t.amountPaid) || !session.current || !t.databaseId)
       return false;
@@ -153,8 +154,7 @@ export function useKioskCheckout() {
     setBusy(true);
     try {
       await kioskApi.cancel(t.databaseId, session.current);
-      clear();
-      return true;
+      return clear();
     } catch (e) {
       setError(
         e instanceof Error ? e.message : "Cancellation could not be confirmed."
@@ -169,7 +169,10 @@ export function useKioskCheckout() {
     return {
       ...demo,
       recovering: false,
-      recover: async () => {},
+      recover: async (_manual=false) => {},
+      recoveryMessage:null,
+      canRetrySavedCheckout:false,
+      retrySavedCheckout:async()=>{},
       reset: async () => demo.reset(),
     };
   return {
@@ -178,6 +181,15 @@ export function useKioskCheckout() {
     transaction,
     busy: busy || recovering,
     recovering,
+    recoveryMessage,
+    canRetrySavedCheckout,
+    retrySavedCheckout: async()=> {
+      if(!canRetrySavedCheckout || !session.current || current.current || locked.current || recovering)return;
+      locked.current=true;setBusy(true);setRecoveryMessage(null);setCanRetrySavedCheckout(false);
+      try {save(await kioskApi.checkout(session.current));setError(null);setRecoveryMessage("Saved checkout confirmed. Showing the original purchase status.");}
+      catch(e){setError(e instanceof Error?e.message:"Unable to confirm the saved checkout. Reconnect before retrying.");}
+      finally {locked.current=false;setBusy(false);}
+    },
     error,
     recover,
     insertedAmount: transaction?.amountPaid ?? 0,
@@ -198,21 +210,25 @@ export function useKioskCheckout() {
       locked.current = true;
       setBusy(true);
       setError(null);
+      setRecoveryMessage(null);setCanRetrySavedCheckout(false);
+      const preparationStarted=performance.now();
       try {
         const next = newPurchaseSession(
           purchase.selectedMedicine.id,
           purchase.quantity
         );
-        localStorage.setItem(purchaseSessionKey, JSON.stringify(next));
+        persistPurchaseSession(purchaseSessionKey,next);
         session.current = next;
         save(await kioskApi.checkout(next));
       } catch (e) {
-        if (e instanceof KioskApiError && [400, 409, 422].includes(e.status)) {
-          clear();
+        if (e instanceof KioskApiError && [400, 409, 422].includes(e.status) && e.code!=="REQUEST_CONFLICT") {
+          if(clear())setError(e.message);
+        } else if(e instanceof KioskSessionError) {
+          logKioskDiagnostic({operation:"checkout_prepare",url:`${apiBaseUrl}/api/transactions/checkout`,status:null,category:e.code,durationMs:performance.now()-preparationStarted});
           setError(e.message);
         } else
           setError(
-            "Checkout response was interrupted. Reconnect to recover the same purchase; do not insert coins."
+            `Checkout could not be confirmed. ${e instanceof KioskApiError?e.message:"Reconnect to recover the same saved purchase; do not insert coins."}`
           );
       } finally {
         locked.current = false;

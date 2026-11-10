@@ -4,7 +4,7 @@ declare(strict_types=1);
 function allowsDevelopmentOrigin(string $origin, array $config, array $server): bool {
     if (($config['app_env'] ?? '') !== 'development') return false;
     $parts=parse_url($origin);
-    if (!$parts || ($parts['scheme'] ?? '') !== 'http' || isset($parts['user']) || isset($parts['pass']) || isset($parts['path']) || isset($parts['query']) || isset($parts['fragment']) || !in_array($parts['port'] ?? 80,[3000,3001,5173],true)) return false;
+    if (!$parts || ($parts['scheme'] ?? '') !== 'http' || isset($parts['user']) || isset($parts['pass']) || isset($parts['path']) || isset($parts['query']) || isset($parts['fragment']) || !in_array($parts['port'] ?? 80,[...range(3000,3019),5173],true)) return false;
     $host=$parts['host'] ?? '';
     $requestHost=parse_url('http://'.($server['HTTP_HOST'] ?? ''),PHP_URL_HOST);
     if ($host !== $requestHost) return false;

@@ -23,6 +23,14 @@ $apiPosition = strpos($path, '/api/');
 if ($apiPosition !== false) { $path = substr($path, $apiPosition); }
 $path = preg_replace('#^/index\.php#', '', $path) ?: '/';
 $path = rtrim($path, '/') ?: '/';
+if (preg_match('#^/api/transactions/(checkout|recover|\d+(?:/cancel)?)$#',$path)) {
+    $diagnosticStarted=microtime(true);
+    $diagnosticPath=preg_replace('#/transactions/\d+#','/transactions/:id',$path);
+    register_shutdown_function(static function()use($diagnosticStarted,$diagnosticPath,$method):void {
+        $status=http_response_code()?:200;
+        error_log('[MediDispense kiosk] '.json_encode(['method'=>$method,'path'=>$diagnosticPath,'status'=>$status,'category'=>$status>=500?'server_error':($status>=400?'request_rejected':'success'),'duration_ms'=>(int)round((microtime(true)-$diagnosticStarted)*1000)]));
+    });
+}
 $validProfileImageUrl = static function (?string $url): bool {
     if ($url === null || preg_match('#^/manus-storage/profile-photos/[A-Za-z0-9._-]{1,180}$#', $url) === 1 || preg_match('#^https://(firebasestorage\.googleapis\.com|storage\.googleapis\.com)/#', $url) === 1) return true;
     $parts = parse_url($url);

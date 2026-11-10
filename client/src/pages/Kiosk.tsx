@@ -187,19 +187,21 @@ export default function Kiosk() {
         )}
         {checkout.recovering && (
           <div className="kv-message" role="status">
-            Recovering your saved purchase…
+            Checking your saved purchase…
           </div>
         )}
+        {checkout.recoveryMessage && !checkout.error && <div className="kv-message" role="status">{checkout.recoveryMessage}</div>}
         {checkout.error && (
           <div className="kv-message kv-error" role="alert">
             {checkout.error}
             <button
               className="kv-button kv-secondary"
               disabled={busy}
-              onClick={() => void checkout.recover()}
+              onClick={() => void checkout.recover(true)}
             >
-              Reconnect / check purchase
+              {checkout.recovering ? "Checking purchase…" : "Reconnect / check purchase"}
             </button>
+            {checkout.canRetrySavedCheckout && <button className="kv-button kv-secondary" disabled={busy} onClick={()=>void checkout.retrySavedCheckout()}>Retry same saved checkout</button>}
             {transaction && <strong> Reference: {transaction.id}</strong>}
           </div>
         )}
