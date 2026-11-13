@@ -11,6 +11,8 @@ import {
 import { apiBaseUrl, kioskDemo } from "@/lib/apiConfig";
 import { KioskSessionError, readPurchaseSession, persistPurchaseSession, removePurchaseSession } from "@/lib/kioskSession";
 import { logKioskDiagnostic } from "@/lib/kioskDiagnostics";
+import { canReturnAfterDispensing } from "@/lib/medicineInformation";
+import { recoveryConfirmed } from "@/lib/dispensingTimeout";
 import {
   mayLeavePayment,
   paymentStatus,
@@ -81,7 +83,7 @@ export function useKioskCheckout() {
       kioskDemo ||
       !transaction?.databaseId ||
       !session.current ||
-      transaction.dispensingStatus === "dispensed" ||
+      (transaction.dispensingStatus === "dispensed" && (transaction.issueRecovery ? recoveryConfirmed(transaction) : (!transaction.paymentWindow?.controlledDemoAutoBinding || transaction.customerHandoffSafe===true))) ||
       transaction.paymentStatus === "cancelled"
     )
       return;
@@ -118,6 +120,10 @@ export function useKioskCheckout() {
     transaction?.databaseId,
     transaction?.dispensingStatus,
     transaction?.paymentStatus,
+    transaction?.customerHandoffSafe,
+    transaction?.paymentWindow?.controlledDemoAutoBinding,
+    transaction?.issueRecovery?.returnRequested,
+    transaction?.issueRecovery?.machineReuseReady,
     save,
   ]);
   useEffect(() => {
@@ -141,6 +147,15 @@ export function useKioskCheckout() {
     if (!t) {
       return clear();
     }
+    if(t.issueRecovery && !recoveryConfirmed(t)){setError('Physical recovery or the safe return request is incomplete. The purchase is retained for staff review.');return false;}
+      if(t.dispensingStatus==='dispensed' && !canReturnAfterDispensing(t)) {
+        setError('Your medicine was dispensed. The purchase is retained because safe handoff to the next customer has not been confirmed. Please ask staff for assistance.');
+        return false;
+      }
+      if(t.dispensingStatus==='failed' && !t.adminRecovered) {
+        setError('This dispensing issue requires staff recovery. The original payment and purchase session have been retained.');
+        return false;
+      }
     if (
       t.dispensingStatus === "dispensed" ||
       t.dispensingStatus === "failed" ||
@@ -173,6 +188,7 @@ export function useKioskCheckout() {
       recoveryMessage:null,
       canRetrySavedCheckout:false,
       retrySavedCheckout:async()=>{},
+      expirePayment:async()=>{},
       reset: async () => demo.reset(),
     };
   return {
@@ -192,6 +208,28 @@ export function useKioskCheckout() {
     },
     error,
     recover,
+    expirePayment: async () => {
+      const t=current.current;
+      if(locked.current || recovering || !session.current || !t?.databaseId ||
+        t.paymentStatus!=='pending' || t.dispensingStatus!=='pending' || t.amountPaid!==0) return;
+      locked.current=true;setBusy(true);
+      try { save(await kioskApi.expire(t.databaseId,session.current));setError(null); }
+      catch(e) {
+        // A simultaneous genuine coin/full payment wins over the expiry request.
+        try {
+          const latest=await kioskApi.get(t.databaseId,session.current);
+          save(latest);
+          // Expiry can lose a race to a real payment, or its response can be lost
+          // after commit. Display the authoritative outcome rather than a stale error.
+          if(latest.paymentExpiry?.confirmed || latest.paymentStatus==='successful' || latest.dispensingStatus==='dispensing' || latest.dispensingStatus==='dispensed') {
+            setError(null);
+            return;
+          }
+        }
+        catch { /* Retain the original recoverable session when the network is unavailable. */ }
+        setError(e instanceof Error?e.message:"Expiration could not be confirmed. Preserve this purchase and ask for assistance.");
+      } finally {locked.current=false;setBusy(false);}
+    },
     insertedAmount: transaction?.amountPaid ?? 0,
     remainingAmount: remainingAmount(
       transaction?.total ?? 0,

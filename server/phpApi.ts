@@ -83,10 +83,21 @@ export async function phpMachine(ctx: TrpcContext): Promise<MachineStatus> {
     ctx,
     "/api/machine/status"
   );
+  if (!m) throw new TRPCError({ code: "NOT_FOUND", message: "Machine monitoring data is unavailable." });
+  let reported: Record<string, unknown> = {};
+  try { reported = typeof m.last_payload === "string" ? JSON.parse(m.last_payload) : m.last_payload ?? {}; } catch { /* Unverified legacy data stays unknown. */ }
+  const explicit = (key: string) => typeof reported?.[key] === "string" && reported[key] === m[key];
+  const age = m.heartbeat_age_seconds == null ? null : Number(m.heartbeat_age_seconds);
   return {
     machineName: m.name,
+    monitoringSource: m.monitoring_source,
+    controllerDeviceId: m.controller_device_id ?? null,
+    controllerAmbiguous: m.controller_ambiguous === true,
     machineId: m.machine_code,
-    online: m.connection_status === "online",
+    online: m.connection_status === "online" && age !== null && age >= 0 && age <= 90,
+    heartbeatAgeSeconds: age,
+    heartbeatAtMs: m.heartbeat_at_ms == null ? null : Number(m.heartbeat_at_ms),
+    componentReports: { controller: explicit("esp32_status"), dispenser: explicit("motor_status"), detection: explicit("sensor_status"), payment: explicit("coin_acceptor_status") },
     lastCommunication: m.last_communication_at ?? "",
     esp32Status: m.esp32_status ?? "Unknown",
     motorStatus: m.motor_status ?? "Unknown",
@@ -99,6 +110,8 @@ export async function phpMachine(ctx: TrpcContext): Promise<MachineStatus> {
       motorId: s.motor_id,
       sensorId: s.sensor_id,
       quantity: Number(s.quantity),
+      availableQuantity: s.available_quantity == null ? undefined : Number(s.available_quantity),
+      minimumStockLevel: s.minimum_stock_level == null ? undefined : Number(s.minimum_stock_level),
       status: s.slot_status,
       lastDispensingAt: s.last_dispensing_at,
     })),

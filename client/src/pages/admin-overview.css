@@ -1,0 +1,84 @@
+/* Scoped to the dashboard and inventory; other admin and kiosk screens retain their styles. */
+.app-shell :is(.dashboard-overview,.inventory-page) { gap:22px; padding-bottom:28px; }
+.admin-page-hero { position:relative; isolation:isolate; display:flex; align-items:center; gap:22px; padding:28px; border:1px solid #cbdff7; border-radius:22px; background:linear-gradient(115deg,#e5f1ff,#f5faff 65%,#fff); box-shadow:0 10px 28px #194b8c12; }
+.admin-page-hero:after { content:''; position:absolute; z-index:-1; right:10%; top:0; width:130px; height:100%; background:linear-gradient(115deg,transparent,#b4d5ff26,transparent); pointer-events:none; }
+.admin-hero-symbol { display:grid; place-items:center; flex:0 0 auto; width:70px; height:70px; border-radius:21px; color:#2271d8; border:1px solid #bcd7f9; background:linear-gradient(140deg,#fff,#d3e6ff); box-shadow:0 6px 14px #2767bc15,inset 0 1px 0 #fff; transform:rotate(-5deg); }
+.admin-hero-symbol svg { transform:rotate(5deg); }
+.admin-hero-copy { flex:1; min-width:0; }
+.admin-eyebrow { color:#4c78ac; font-size:10px; font-weight:800; letter-spacing:.15em; }
+.admin-hero-copy h2 { color:#17385e; font-size:clamp(21px,2vw,29px); font-weight:750; line-height:1.25; letter-spacing:-.035em; margin:7px 0; }
+.admin-hero-copy p { margin:0; color:#5d7897; font-size:13px; line-height:1.6; }
+.app-shell :is(.dashboard-overview,.inventory-page) .primary-button { min-height:44px; border-radius:11px; padding:11px 16px; font-size:12px; background:linear-gradient(135deg,#267df2,#1b61d4); box-shadow:0 5px 14px #2269d525; }
+.app-shell .dashboard-overview .metric-grid { gap:16px; }
+.app-shell .dashboard-overview .metric-card { position:relative; overflow:hidden; min-height:168px; border:1px solid #d4e2f4; border-radius:18px; padding:24px; background:linear-gradient(145deg,#fff,#f9fbff); box-shadow:0 6px 20px #194b8c0e; }
+.app-shell .dashboard-overview .metric-card:before { content:''; position:absolute; top:25px; left:0; width:3px; height:38px; border-radius:0 4px 4px 0; background:#7aaaf0; }
+.app-shell .dashboard-overview .metric-icon { top:22px; right:22px; width:44px; height:44px; border-radius:14px; }
+.app-shell .dashboard-overview .metric-icon svg { width:22px; height:22px; }
+.app-shell .dashboard-overview .metric-value { margin:6px 0 14px; font-size:34px; font-weight:750; color:#1b3b63; letter-spacing:-.04em; }
+.app-shell .dashboard-overview .metric-label { color:#3d5979; font-size:13px; font-weight:650; }
+.app-shell .dashboard-overview .metric-card small { margin-top:7px; font-size:11px; color:#7a8fa8; line-height:1.5; }
+.app-shell .dashboard-overview .metric-mint:before { background:#48b699; }
+.app-shell .dashboard-overview .metric-orange:before { background:#eead72; }
+.app-shell .dashboard-overview .metric-rose:before { background:#e78f9f; }
+.app-shell .dashboard-overview .metric-blue { background:linear-gradient(135deg,#e4efff,#f1f6ff); border-color:#c6dcfb; }
+.app-shell .dashboard-overview .metric-mint { background:linear-gradient(135deg,#dff5ee,#f0fbf7); border-color:#c3e7dc; }
+.app-shell .dashboard-overview .metric-orange { background:linear-gradient(135deg,#fff0df,#fff8ef); border-color:#f1dcc2; }
+.app-shell .dashboard-overview .metric-rose { background:linear-gradient(135deg,#ffe8ee,#fff4f6); border-color:#f2ccd6; }
+.app-shell .dashboard-overview .metric-card small { color:#617994; }
+.app-shell :is(.dashboard-overview,.inventory-page) .panel { border:1px solid #d6e3f3; border-radius:19px; box-shadow:0 6px 22px #194b8c0c; }
+.app-shell :is(.dashboard-overview,.inventory-page) .panel-head { padding:24px; gap:16px; }
+.app-shell :is(.dashboard-overview,.inventory-page) .panel h2 { font-size:18px; color:#234268; font-weight:700; }
+.app-shell :is(.dashboard-overview,.inventory-page) .panel-kicker { color:#7b94b2; font-size:10px; letter-spacing:.13em; }
+.app-shell .dashboard-overview .content-grid { gap:20px; }
+.app-shell .dashboard-overview .wide-left { grid-template-columns:minmax(0,1.55fr) minmax(320px,1fr); }
+.app-shell .dashboard-overview .chart-area { height:250px; padding:10px 24px 0; }
+.app-shell .dashboard-overview .y-axis { color:#8a9bb0; font-size:11px; }
+.app-shell .dashboard-overview .bar-chart { background:repeating-linear-gradient(to bottom,transparent 0,transparent 54px,#edf3fa 55px,transparent 56px); }
+.app-shell .dashboard-overview .bar { width:min(38px,65%); min-height:0; border-radius:8px 8px 0 0; background:linear-gradient(180deg,#599dff,#256bdc); box-shadow:0 4px 14px #246bfe1c; }
+.app-shell .dashboard-overview .bar-wrap>span { color:#7189a6; font-size:11px; }
+.app-shell .dashboard-overview .chart-foot { padding:18px 24px; font-size:12px; background:#f8fbff; }
+.app-shell .dashboard-overview .attention-list { max-height:325px; }
+.app-shell .dashboard-overview .attention-item { align-items:flex-start; padding:16px 20px; gap:12px; }
+.app-shell .dashboard-overview .attention-icon { flex:0 0 auto; width:34px; height:34px; border-radius:11px; }
+.app-shell .dashboard-overview .attention-item strong { font-size:12px; line-height:1.5; }
+.app-shell .dashboard-overview .attention-item p { font-size:12px; line-height:1.6; color:#647b98; margin:6px 0; }
+.app-shell .dashboard-overview .attention-item small { font-size:10px; color:#8a9db4; }
+.app-shell .dashboard-overview .alert-count { padding:6px 10px; border-radius:9px; font-size:12px; }
+.app-shell .dashboard-overview .panel-link { font-size:12px; padding:10px 0; }
+.app-shell .dashboard-overview .attention-list+.panel-link { margin:0 24px 16px; }
+.app-shell .dashboard-overview .recent-row { padding:17px 24px; gap:12px; }
+.app-shell .dashboard-overview .recent-icon { flex:0 0 auto; width:37px; height:37px; border-radius:12px; }
+.app-shell .dashboard-overview .recent-row>div:nth-child(2) { min-width:0; }
+.app-shell .dashboard-overview .recent-row strong { font-size:11px; overflow-wrap:anywhere; }
+.app-shell .dashboard-overview .recent-row small { font-size:12px; color:#7a8fa8; }
+.app-shell .dashboard-overview .recent-amount { flex:0 0 auto; font-size:13px; }
+.app-shell :is(.dashboard-overview,.inventory-page) th { background:#f5f9ff; font-size:10px; color:#7990ad; padding:13px 20px; }
+.app-shell :is(.dashboard-overview,.inventory-page) td { font-size:12px; padding:17px 20px; color:#5e7694; }
+.app-shell :is(.dashboard-overview,.inventory-page) td strong { font-size:13px; color:#284769; font-weight:650; }
+.app-shell :is(.dashboard-overview,.inventory-page) td small { font-size:11px; color:#8599b1; margin-top:5px; }
+.app-shell :is(.dashboard-overview,.inventory-page) .medicine-cell { gap:13px; }
+.app-shell :is(.dashboard-overview,.inventory-page) .medicine-thumb { display:grid; place-items:center; flex:0 0 auto; width:48px; height:48px; border-radius:13px; padding:5px; background:#f5f9ff; color:#397ed1; border:1px solid #e0eafa; }
+.app-shell :is(.dashboard-overview,.inventory-page) .medicine-thumb img { object-fit:contain; border-radius:7px; }
+.app-shell :is(.dashboard-overview,.inventory-page) .status-badge { padding:6px 9px; border-radius:20px; font-size:10px; white-space:nowrap; }
+.app-shell :is(.dashboard-overview,.inventory-page) .slot-pill { font-size:11px; padding:6px 9px; border-radius:8px; }
+.app-shell .inventory-page .inventory-summary { gap:16px; }
+.app-shell .inventory-page .inventory-summary>div { position:relative; gap:7px; padding:23px; border:1px solid #d4e2f4; border-radius:17px; background:linear-gradient(140deg,#fff,#f9fbff); box-shadow:0 6px 20px #194b8c0c; }
+.app-shell .inventory-page .inventory-summary>div>span { color:#7289a4; font-size:12px; padding-right:42px; }
+.app-shell .inventory-page .inventory-summary strong { font-size:25px; font-weight:750; color:#25476e; letter-spacing:-.025em; }
+.inventory-stat-icon { position:absolute; right:20px; top:23px; display:grid; place-items:center; width:39px; height:39px; border-radius:12px; color:#367bd5; background:#eaf3ff; }
+.inventory-stat-warn { color:#c78a42; background:#fff4e5; }
+.inventory-stat-expiry { color:#ce7184; background:#fff0f3; }
+.app-shell .inventory-page .filter-box { min-height:44px; border:1px solid #cddff5; border-radius:11px; background:#ffffffc9; }
+.app-shell .inventory-page .filter-box input { font-size:12px; width:180px; }
+.app-shell .inventory-page .inventory-register>.toolbar-actions { display:flex; gap:10px; padding-bottom:22px; }
+.app-shell .inventory-page .inventory-register select,.app-shell .inventory-page .secondary-button { min-height:40px; font-size:12px; border-radius:10px; border-color:#d4e2f4; }
+.app-shell .inventory-page .row-action { min-height:34px; font-size:11px; padding:7px 10px; border-radius:8px; }
+.app-shell .inventory-page tbody tr:hover td { background:#f5f9ff; }
+.app-shell .inventory-page .table-wrap { border-top:1px solid #e5edf8; }
+.app-shell :is(.dashboard-overview,.inventory-page) button:focus-visible { outline:3px solid #b4d3ff; outline-offset:3px; }
+@media(hover:hover) { .app-shell .dashboard-overview .metric-card:hover { box-shadow:0 10px 25px #194b8c17; } }
+@media(max-width:1200px) { .app-shell .dashboard-overview .wide-left { grid-template-columns:minmax(0,1.4fr) minmax(285px,1fr); } .app-shell .inventory-page .admin-page-hero { flex-wrap:wrap; } .app-shell .inventory-page .admin-page-hero>.toolbar-actions { flex-basis:100%; justify-content:flex-end; } .app-shell .inventory-page .inventory-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:1000px) { .app-shell .dashboard-overview .wide-left { grid-template-columns:1fr; } .app-shell .dashboard-overview .metric-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:700px) { .admin-page-hero { flex-wrap:wrap; padding:22px; gap:16px; } .admin-hero-symbol { width:54px; height:54px; border-radius:17px; } .admin-hero-copy { flex-basis:calc(100% - 75px); } .admin-page-hero>.primary-button { margin-left:70px; } .app-shell .inventory-page .admin-page-hero { flex-direction:row; align-items:center; } .app-shell .inventory-page .toolbar-actions { flex-wrap:wrap; } .app-shell .inventory-page .filter-box { flex:1; } .app-shell .inventory-page .filter-box input { min-width:0; width:100%; } .app-shell .dashboard-overview .chart-foot { gap:8px; flex-wrap:wrap; } }
+@media(max-width:480px) { .app-shell .dashboard-overview .metric-card { padding:18px; } .app-shell .dashboard-overview .metric-icon { width:31px; height:31px; right:14px; top:14px; } .app-shell .dashboard-overview .metric-value { font-size:26px; padding-right:24px; } .app-shell .inventory-page .inventory-summary { grid-template-columns:1fr; } .admin-page-hero>.primary-button { margin-left:0; width:100%; } }
+.a11y-contrast .app-shell :is(.dashboard-overview,.inventory-page) :is(.admin-page-hero,.panel,.metric-card) { background:#fff; border-color:#52657e; }

@@ -1,0 +1,72 @@
+.machine-monitoring { gap:22px; }
+.machine-monitoring .mm-status { display:inline-flex; align-items:center; gap:7px; width:fit-content; padding:6px 10px; border-radius:24px; font-size:12px; font-weight:700; line-height:1.3; white-space:nowrap; background:#edf2f8; color:#63758b; }
+.machine-monitoring .mm-status i { width:7px; height:7px; border-radius:50%; background:currentColor; flex-shrink:0; }
+.machine-monitoring .mm-status.mm-good { color:#247657; background:#eaf7f0; }
+.machine-monitoring .mm-status.mm-bad { color:#a33b40; background:#fff0f1; }
+.machine-monitoring .mm-status.mm-warn { color:#93621c; background:#fff6e5; }
+.machine-monitoring .mm-status.mm-info { color:#2168be; background:#eaf3ff; }
+.machine-monitoring .mm-hero { position:relative; isolation:isolate; display:grid; grid-template-columns:160px minmax(0,1fr) auto; align-items:center; gap:30px; padding:30px 34px; overflow:hidden; border:1px solid #cbdff7; border-radius:24px; color:#173558; background:linear-gradient(115deg,#e3f0ff 0%,#f4f9ff 55%,#fff 100%); box-shadow:0 12px 32px rgba(25,75,140,.09); }
+.machine-monitoring .mm-hero:after { content:''; position:absolute; z-index:-1; width:310px; height:310px; right:-110px; top:-170px; border-radius:50%; border:45px solid #e3effd; opacity:.7; pointer-events:none; }
+.machine-monitoring .machine-copy .eyebrow { color:#326bb0; font-size:11px; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
+.machine-monitoring .machine-copy h2 { color:#15345d; font-size:clamp(25px,2.4vw,34px); font-weight:750; letter-spacing:-.035em; margin:8px 0 10px; }
+.machine-monitoring .machine-copy p { color:#506b8a; font-size:14px; line-height:1.65; max-width:490px; margin:0 0 15px; }
+.machine-monitoring .machine-copy>.mm-status { font-size:14px; padding:8px 14px; box-shadow:0 2px 8px #17355808; border:1px solid #ffffffb0; }
+.machine-monitoring .mm-hero>.primary-button { position:relative; color:white; background:linear-gradient(135deg,#1c80ee,#1661cf); border:1px solid #2470d8; border-radius:12px; min-height:46px; font-size:13px; padding:12px 18px; box-shadow:0 6px 16px #1b65cd26; }
+.mm-machine-art { position:relative; display:grid; place-items:center; width:160px; height:164px; }
+.mm-art-orbit { position:absolute; width:156px; height:156px; border:1px solid #bcd6f7; border-radius:50%; box-shadow:0 0 0 13px #cfe3fc55; }
+.mm-art-machine { position:relative; width:96px; height:139px; padding:13px 10px; background:linear-gradient(140deg,#fff,#d4e8ff); border:2px solid #76a8e9; border-radius:16px; transform:rotate(-7deg); box-shadow:7px 12px 0 #2468ba16,0 12px 25px #215db626; }
+.mm-art-screen { display:grid; place-items:center; height:58px; color:#fff; background:linear-gradient(135deg,#4c9bf6,#1a5dc5); border-radius:8px; box-shadow:inset 0 1px 3px #ffffff4f; }
+.mm-art-products { display:flex; justify-content:space-around; gap:7px; margin-top:10px; }
+.mm-art-products span { width:15px; height:19px; border-radius:5px; background:linear-gradient(#fff,#b7d5fb); border:1px solid #8eb8ed; }
+.mm-art-tray { height:8px; border-radius:4px; background:#739dce; margin-top:9px; box-shadow:inset 0 2px 3px #2a5d9940; }
+.mm-art-signal { position:absolute; right:1px; bottom:15px; display:grid; place-items:center; width:45px; height:45px; background:white; border:1px solid #c8ddf8; border-radius:14px; color:#2479dd; box-shadow:0 5px 12px #215db61c; }
+.machine-monitoring .hardware-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
+.machine-monitoring .mm-component { position:relative; display:block; padding:22px; overflow:hidden; border:1px solid #d5e3f3; border-radius:18px; background:#fff; box-shadow:0 6px 20px rgba(25,75,140,.065); transition:box-shadow .2s,transform .2s; }
+.machine-monitoring .mm-component:before { content:''; position:absolute; left:0; top:22px; height:30px; width:3px; background:#b9d6fc; border-radius:0 5px 5px 0; }
+.machine-monitoring .mm-card-info:before { background:#3181e8; }
+.machine-monitoring .mm-component-controller { background:linear-gradient(135deg,#d5e5ff,#ebf2ff); border-color:#abcafa; }
+.machine-monitoring .mm-component-dispenser { background:linear-gradient(135deg,#ffe3b5,#fff1d8); border-color:#edc887; }
+.machine-monitoring .mm-component-detection { background:linear-gradient(135deg,#e7dcff,#f3ecff); border-color:#cdb5ee; }
+.machine-monitoring .mm-component-payment { background:linear-gradient(135deg,#c8eee5,#e5f8f2); border-color:#96d7c7; }
+.machine-monitoring .mm-component-dispenser:before { background:#db9b32; }
+.machine-monitoring .mm-component-detection:before { background:#a17bd1; }
+.machine-monitoring .mm-component-payment:before { background:#48b699; }
+.machine-monitoring .mm-component-top { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:21px; }
+.machine-monitoring .hardware-icon { flex:0 0 auto; width:46px; height:46px; border-radius:14px; color:#2674d9; background:linear-gradient(140deg,#eaf3ff,#dceaff); border:1px solid #d2e5fd; }
+.machine-monitoring .mm-component-dispenser .hardware-icon { color:#a86a16; background:#fff0cf; border-color:#edc887; }
+.machine-monitoring .mm-component-detection .hardware-icon { color:#7950af; background:#eee4ff; border-color:#cfb7ef; }
+.machine-monitoring .mm-component-payment .hardware-icon { color:#16765f; background:#d7f4eb; border-color:#96d7c7; }
+.machine-monitoring .mm-component .mm-status { display:inline-flex; font-size:11px; }
+.machine-monitoring .mm-component h3 { color:#203d63; margin:0 0 8px; font-size:16px; font-weight:700; letter-spacing:-.02em; }
+.machine-monitoring .mm-component p { font-size:13px; line-height:1.6; color:#647992; margin:0; }
+.machine-monitoring .mm-stock-panel { border:1px solid #d5e3f3; border-radius:22px; overflow:hidden; box-shadow:0 8px 24px rgba(25,75,140,.06); }
+.machine-monitoring .mm-stock-panel .panel-head { padding:24px 24px 0; align-items:center; }
+.machine-monitoring .mm-section-title { display:flex; align-items:center; gap:13px; }
+.mm-section-icon { width:45px; height:45px; display:grid; place-items:center; border-radius:14px; color:#286fc8; background:#edf5ff; }
+.machine-monitoring .mm-stock-panel h2 { color:#203d63; font-size:20px; font-weight:700; margin-top:4px; }
+.machine-monitoring .panel-kicker { font-size:10px; color:#718caf; }
+.mm-slot-count { padding:7px 11px; background:#f0f5fc; border-radius:8px; color:#5d7695; font-size:12px; font-weight:600; }
+.machine-monitoring .mm-inventory-note { margin:14px 24px 20px; color:#687f99; font-size:13px; line-height:1.5; }
+.machine-monitoring .slot-grid { padding:0 24px 24px; gap:16px; }
+.machine-monitoring .mm-stock-card { background:linear-gradient(150deg,#fff,#f6faff); border:1px solid #d4e2f4; padding:20px; border-radius:16px; }
+.mm-stock-top { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.machine-monitoring .slot-number { display:flex; align-items:center; gap:6px; font-size:11px; color:#7087a3; font-weight:650; letter-spacing:.025em; }
+.machine-monitoring .mm-stock-card h3 { margin:20px 0 14px; color:#234268; font-size:18px; line-height:1.3; font-weight:700; overflow-wrap:anywhere; }
+.mm-stock-amount { display:flex; align-items:baseline; gap:10px; }
+.mm-stock-amount strong { color:#1c62bd; font-size:42px; line-height:1.15; letter-spacing:-.05em; font-weight:750; }
+.mm-stock-amount>span { color:#6b819b; font-size:13px; }
+.mm-stock-footer { display:flex; align-items:center; justify-content:space-between; padding-top:14px; margin-top:20px; border-top:1px solid #e1ebf7; color:#8297b1; font-size:11px; }
+.machine-monitoring .mm-stock-warn .mm-stock-amount strong { color:#93621c; }
+.machine-monitoring .mm-stock-bad .mm-stock-amount strong { color:#a33b40; }
+.machine-monitoring .mm-warning,.machine-monitoring .mm-feedback { padding:12px 16px; border-radius:12px; background:#edf4fd; color:#365478; font-size:14px; line-height:1.5; }
+.machine-monitoring .mm-warning { background:#fff6e5; color:#80541c; }
+.mm-empty { padding:28px; text-align:center; color:#53657a; }
+.machine-monitoring button { min-height:44px; }
+.machine-monitoring button:focus-visible { outline:3px solid #006bdc; outline-offset:3px; }
+.mm-refreshing { animation:mm-spin 1s linear infinite; }
+@keyframes mm-spin { to { transform:rotate(360deg); } }
+@media(hover:hover) { .machine-monitoring .mm-component:hover { transform:translateY(-2px); box-shadow:0 10px 24px rgba(25,75,140,.11); } }
+@media(max-width:1200px) { .machine-monitoring .hardware-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .machine-monitoring .mm-hero { grid-template-columns:130px minmax(0,1fr) auto; padding:26px; gap:20px; } .mm-machine-art { width:130px; } .mm-art-orbit { width:125px; height:125px; } }
+@media(max-width:850px) { .machine-monitoring .mm-hero { grid-template-columns:130px minmax(0,1fr); } .machine-monitoring .mm-hero>.primary-button { grid-column:2; justify-self:start; } .machine-monitoring .slot-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:600px) { .machine-monitoring .mm-hero { grid-template-columns:1fr; text-align:center; justify-items:center; gap:18px; } .machine-monitoring .machine-copy>.mm-status { margin:auto; } .machine-monitoring .mm-hero>.primary-button { grid-column:1; justify-self:stretch; } .machine-monitoring .hardware-grid,.machine-monitoring .slot-grid { grid-template-columns:1fr; } .machine-monitoring .mm-stock-panel .panel-head { align-items:flex-start; gap:12px; flex-wrap:wrap; } }
+@media(prefers-reduced-motion:reduce) { .machine-monitoring .mm-component { transition:none; } .mm-refreshing { animation:none; } }

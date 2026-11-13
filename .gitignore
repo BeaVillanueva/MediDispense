@@ -120,6 +120,8 @@ client/public/__manus__/version.json
 backend/vendor/
 backend/config/local.php
 backend/config/smtp.local.php
+backend/config/payment-demo.local.php
+esp32/CAPSTONE_MEDICINE_VENDO/PaymentDemo.local.h
 **/service-account*.json
 **/*serviceAccount*.json
 *.pem

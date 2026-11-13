@@ -218,6 +218,17 @@ export const appRouter = router({
       }),
   }),
   transactions: router({
+    details: permissionProcedure("transactions.view")
+      .input(z.object({id:z.number().int().positive()}))
+      .query(({ctx,input})=>phpRequest<import("../shared/medidispense").TransactionRecordDetails>(ctx,`/api/transactions/${input.id}/details`)),
+    issueDetails: permissionProcedure("inventory.adjust")
+      .input(z.object({id:z.number().int().positive()}))
+      .query(({ctx,input})=>phpRequest<import("../shared/medidispense").DispenseIssueDetails>(ctx,`/api/transactions/${input.id}/dispensing-issue`)),
+    resolveIssue: permissionProcedure("inventory.adjust")
+      .input(z.object({id:z.number().int().positive(),transactionCode:z.string().min(1),requestKey:z.string().regex(/^[a-f0-9]{32}$/),expectedRevision:z.number().int().min(0),outcome:z.enum(["dispensed_sensor_missed","not_dispensed","partial"]),verifiedQuantity:z.number().int().min(0).max(3),physicallyInspected:z.literal(true),motorStopped:z.literal(true),controllerDisconnected:z.literal(true),inspectionComplete:z.boolean(),physicalStock:z.number().int().min(0).max(10).optional(),obligationStatus:z.enum(["pending","delivery_verified","refund_documented","replacement_documented"]),obligationReference:z.string().max(200),notes:z.string().trim().min(5).max(1000),returnToKiosk:z.boolean()}))
+      .mutation(({ctx,input})=>phpRequest<import("../shared/medidispense").Transaction>(ctx,`/api/transactions/${input.id}/dispensing-issue`,"POST",{
+        transaction_code:input.transactionCode,request_key:input.requestKey,expected_revision:input.expectedRevision,outcome:input.outcome,verified_quantity:input.verifiedQuantity,physically_inspected:input.physicallyInspected,motor_stopped:input.motorStopped,controller_disconnected:input.controllerDisconnected,inspection_complete:input.inspectionComplete,physical_stock:input.physicalStock,obligation_status:input.obligationStatus,obligation_reference:input.obligationReference,notes:input.notes,return_to_kiosk:input.returnToKiosk,
+      })),
     recoverStopped: permissionProcedure("inventory.adjust")
       .input(z.object({ id: z.number().int().positive(), transactionCode: z.string().min(1), motorStopped: z.literal(true), controllerDisconnected: z.literal(true), reason: z.string().trim().min(5).max(500), physicalStock: z.number().int().min(0).max(10).optional() }))
       .mutation(({ ctx, input }) => phpRequest(ctx, `/api/transactions/${input.id}/recover-stopped`, "POST", {
@@ -272,6 +283,10 @@ export const appRouter = router({
       ),
   }),
   machine: router({
+    controllers: permissionProcedure("machine.view").query(({ctx})=>{if(ctx.employeeRole!=="super_admin")throw new TRPCError({code:"FORBIDDEN",message:"Super Admin maintenance access required."});return phpRequest<Array<{device_id:string;bound_transaction_id:number;fresh:boolean;ageSeconds:number;retired:boolean;registrationStatus:string;pending_events:number}>>(ctx,"/api/payments/diagnostics");}),
+    retireController: permissionProcedure("machine.operate")
+      .input(z.object({old_device_id:z.string().regex(/^[A-Fa-f0-9]{12}$/),new_device_id:z.string().regex(/^[A-Fa-f0-9]{12}$/),old_disconnected:z.literal(true),no_unrecorded_coins:z.literal(true),new_physically_verified:z.literal(true)}))
+      .mutation(({ctx,input})=>{if(ctx.employeeRole!=="super_admin")throw new TRPCError({code:"FORBIDDEN",message:"Super Admin maintenance access required."});return phpRequest<{retired:boolean;replacement?:string;already_retired?:boolean}>(ctx,"/api/payments/controllers/retire","POST",input);}),
     status: permissionProcedure("machine.view").query(({ ctx }) =>
       demoEnabled() ? store.getMachine() : phpMachine(ctx)
     ),

@@ -48,7 +48,7 @@ final class AlertService {
                 $this->incident('dispense:'.$r['id'],'dispense:'.$r['id'],'dispensing_failure',$r,$details,(int)$r['id']);
             }
             // A genuine full confirmation resolves a timeout, never a successful command alone.
-            foreach($this->db->query("SELECT a.id,dr.quantity,dr.dispensed_quantity,dr.request_status,t.dispensing_status FROM alert_incidents a JOIN dispensing_requests dr ON dr.id=a.request_id JOIN transactions t ON t.id=dr.transaction_id WHERE a.kind='dispensing_failure' AND a.resolved_at IS NULL")->fetchAll() as $i) {
+            foreach($this->db->query("SELECT a.id,dr.quantity,dr.dispensed_quantity,dr.request_status,t.dispensing_status FROM alert_incidents a JOIN dispensing_requests dr ON dr.id=a.request_id JOIN transactions t ON t.id=dr.transaction_id WHERE a.kind='dispensing_failure' AND a.resolved_at IS NULL AND NOT EXISTS (SELECT 1 FROM activity_logs review WHERE review.action='admin_dispense_issue_reviewed' AND JSON_UNQUOTE(JSON_EXTRACT(review.metadata,'$.transaction_id'))=CAST(t.id AS CHAR))")->fetchAll() as $i) {
                 if ($i['request_status']==='success' && $i['dispensing_status']==='dispensed' && (int)$i['quantity']===(int)$i['dispensed_quantity']) $this->resolveRow((int)$i['id'],null,'All requested units were confirmed by dispensing feedback.');
             }
             $this->queueEmails();

@@ -73,8 +73,7 @@ coin. The frontend never submits prices or totals to checkout.
   reduce physical quantity below existing reservations.
 - Stable checkout keys prevent duplicate records. Deadlocked SQL transactions
   are rolled back and retried, with no hardware actions inside the transaction.
-- Unpaid, zero-coin purchases expire after ten minutes; subsequent catalog/status
-  requests release their reservations. A first coin disables unpaid expiry.
+- Payment uses a five-minute advisory countdown. Automatic expiry is disabled until hardware can inhibit and reconcile coin input; see [payment-timeout.md](payment-timeout.md).
   Partial paid sessions remain for assistance rather than discarding money.
 - Payment locks the purchase and records unique coin events. Duplicate events
   have no effect; conflicting duplicate amounts are rejected. Paid status queues

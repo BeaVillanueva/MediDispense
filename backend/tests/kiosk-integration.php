@@ -61,8 +61,9 @@ check((int)$db->query('SELECT quantity FROM inventory WHERE medicine_id=1')->fet
 $db->exec('UPDATE inventory SET quantity=3 WHERE medicine_id=1');
 [$expired,$expiredToken]=purchase($service,1);
 $db->exec('UPDATE transactions SET expires_at=DATE_SUB(NOW(),INTERVAL 11 MINUTE) WHERE id='.(int)$expired['databaseId']);
-check($service->get($expired['databaseId'],$expiredToken)['paymentStatus']==='cancelled','Unpaid session expires without losing coins');
-check((int)$db->query('SELECT reserved_quantity FROM inventory WHERE medicine_id=1')->fetchColumn()===0,'Expired reservation released');
+check($service->get($expired['databaseId'],$expiredToken)['paymentStatus']==='pending','Unpaid session is preserved without hardware drain acknowledgement');
+$service->cancel($expired['databaseId'],$expiredToken);
+check((int)$db->query('SELECT reserved_quantity FROM inventory WHERE medicine_id=1')->fetchColumn()===0,'Explicit safe cancellation releases reservation');
 $db->exec("UPDATE machine_slots SET slot_status='blocked' WHERE id=1");
 check(count($service->medicines())===0,'Blocked slot is excluded from catalog');
 denied(fn()=>purchase($service,1),'SLOT_UNAVAILABLE');

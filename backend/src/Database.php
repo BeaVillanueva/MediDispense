@@ -5,6 +5,9 @@ final class Database
 {
     private static ?PDO $connection = null;
 
+    /** Long-running CLI workers must reconnect after MySQL restarts. */
+    public static function resetConnection(): void { self::$connection = null; }
+
     public static function connect(array $config): PDO
     {
         if (self::$connection) return self::$connection;

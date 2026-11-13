@@ -1,16 +1,30 @@
 <?php
 declare(strict_types=1);
+require_once __DIR__.'/DispenseIssueRecovery.php';
+require_once __DIR__.'/TransactionReceipt.php';
 
 final class KioskError extends RuntimeException {
-    public function __construct(public readonly string $errorCode, string $message, public readonly int $httpStatus=409) { parent::__construct($message); }
+    public function __construct(public readonly string $errorCode, string $message, public readonly int $httpStatus=409, public readonly array $details=[]) { parent::__construct($message); }
+}
+
+/** Implement only after a reviewed hardware inhibit/drain and safe handoff protocol exists. */
+interface PaymentIsolationGateway {
+    // Must prove no accepted/pending/reconciling coins for this exact session and
+    // keep input isolated from future sessions. Never trust a browser assertion.
+    public function isSafelyIsolated(int $machineId, int $transactionId): bool;
 }
 
 /** MySQL is authoritative; hardware commands are sent only by sent(). */
 final class KioskService {
+    use DispenseIssueRecovery;
     public function __construct(
         private PDO $db,
         private string $machineCode,
-        private DispenseCommandGateway $firebase
+        private DispenseCommandGateway $firebase,
+        private ?PaymentIsolationGateway $paymentIsolation = null,
+        private bool $controlledDemoExpiration = false,
+        private bool $controlledDemoAutoBinding = false,
+        private array $protectedTransactionIds = []
     ) {}
     private function one(string $sql, array $args=[]): ?array { $s=$this->db->prepare($sql); $s->execute($args); return $s->fetch() ?: null; }
     private function exec(string $sql, array $args=[]): void { $this->db->prepare($sql)->execute($args); }
@@ -46,15 +60,16 @@ final class KioskService {
         if(!preg_match('/^[a-f0-9]{64}$/D',$token) || !$t['access_token_hash'] || !hash_equals($t['access_token_hash'],hash('sha256',$token))) throw new KioskError('TRANSACTION_NOT_FOUND','Purchase not found.',404);
     }
     public function expireUnpaid(): void {
-        $rows=$this->db->query("SELECT id FROM transactions WHERE checkout_key IS NOT NULL AND payment_status='pending' AND amount_paid=0 AND expires_at < NOW() LIMIT 100")->fetchAll();
-        foreach($rows as $row) $this->atomic(function() use($row) {
-            $t=$this->transaction((int)$row['id'],true);
-            if($t['payment_status']==='pending' && self::cents($t['amount_paid'])===0 && (bool)$t['is_expired']) $this->cancelLocked($t,'Unpaid purchase expired');
-        });
+        // Automatic expiry is intentionally disabled: current ESP32 firmware cannot
+        // inhibit coin input or acknowledge that buffered pulses have been reconciled.
+        // A zero DB balance is not proof of zero physical/in-flight payment.
+        // Keep this compatibility entry point inert; staff/customer cancellation still
+        // uses the existing authenticated, locked cancellation workflow.
     }
+
     public function medicines(bool $available=true): array {
         if($available) $this->expireUnpaid();
-        $machineReady = !$this->one("SELECT dr.id FROM dispensing_requests dr JOIN transactions t ON t.id=dr.transaction_id JOIN machines ma ON ma.id=dr.machine_id WHERE ma.machine_code=? AND t.dispensing_status='dispensing' LIMIT 1",[$this->machineCode]);
+        $machineReady = !$this->machineIssueReviewPending() && !$this->one("SELECT dr.id FROM dispensing_requests dr JOIN transactions t ON t.id=dr.transaction_id JOIN machines ma ON ma.id=dr.machine_id WHERE ma.machine_code=? AND t.dispensing_status='dispensing' LIMIT 1",[$this->machineCode]);
         $sql="SELECT m.*,c.name category_name,c.is_active category_active,i.quantity,i.reserved_quantity,s.id slot_id,s.slot_number,s.slot_status,ma.machine_code,ma.is_enabled machine_enabled FROM medicines m JOIN medicine_categories c ON c.id=m.category_id JOIN inventory i ON i.medicine_id=m.id LEFT JOIN machine_slots s ON s.medicine_id=m.id LEFT JOIN machines ma ON ma.id=s.machine_id ORDER BY m.name,s.id";
         $rows=[]; $today=(string)$this->db->query('SELECT CURDATE()')->fetchColumn();
         foreach($this->db->query($sql)->fetchAll() as $r) {
@@ -160,6 +175,7 @@ final class KioskService {
             // The shared ESP32/Firebase command channel must finish recovery before
             // a new browser or a cleared localStorage can open another purchase.
             $machine = $this->one('SELECT id FROM machines WHERE machine_code=? FOR UPDATE',[$this->machineCode]);
+            if($this->machineIssueReviewPending())throw new KioskError('DISPENSING_UNRESOLVED','A physical dispensing or inventory safety review is still unresolved.');
             if ($machine && $this->one("SELECT dr.id FROM dispensing_requests dr JOIN transactions t ON t.id=dr.transaction_id WHERE dr.machine_id=? AND t.dispensing_status='dispensing' LIMIT 1 FOR UPDATE",[$machine['id']])) {
                 throw new KioskError('DISPENSING_UNRESOLVED','The previous dispensing attempt needs staff recovery before a new purchase can start.');
             }
@@ -243,7 +259,7 @@ final class KioskService {
                 )
                 VALUES(
                     ?,?,?,?,?,?,
-                    DATE_ADD(NOW(),INTERVAL 10 MINUTE)
+                    NULL
                 )",
                 [
                     $code,
@@ -322,7 +338,16 @@ final class KioskService {
             return $this->snapshot($id);
         });
     }
-    public function get(int $id,string $token): array { $this->expireUnpaid(); $t=$this->transaction($id); $this->authorize($t,$token); $this->recordDispensingTimeout($id); return $this->snapshot($id); }
+    public function get(int $id,string $token): array {
+        $this->expireUnpaid(); $t=$this->transaction($id); $this->authorize($t,$token);
+        if($this->controlledDemoExpiration && $t['payment_status']==='pending' && $t['dispensing_status']==='pending') {
+            try { return $this->expirePayment($id,$token); }
+            catch(KioskError $e) {
+                if(!in_array($e->errorCode,['PAYMENT_NOT_EXPIRED','PAYMENT_IN_PROGRESS','PAYMENT_RECONCILIATION_REQUIRED','HARDWARE_ISOLATION_REQUIRED','TRANSACTION_PROTECTED'],true))throw $e;
+            }
+        }
+        $this->recordDispensingTimeout($id); return $this->snapshot($id);
+    }
     public function recover(string $key,string $token): array {
         $t=$this->one('SELECT id FROM transactions WHERE checkout_key=?',[$key]);
         if(!$t) throw new KioskError('TRANSACTION_NOT_FOUND','Purchase not found.',404);
@@ -344,9 +369,77 @@ final class KioskService {
         });
     }
 
-    public function hardwarePaymentSession(): array
+    public function expirePayment(int $id, string $token): array {
+        return $this->atomic(function()use($id,$token) {
+            $t=$this->transaction($id,true); $this->authorize($t,$token);
+            $expired=$this->one("SELECT id FROM activity_logs WHERE action='payment_session_expired' AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.transaction_id'))=? LIMIT 1",[(string)$id]);
+            if($expired && $t['payment_status']==='cancelled') return $this->snapshot($id);
+            if(in_array($id,$this->protectedTransactionIds,true))throw new KioskError('TRANSACTION_PROTECTED','This purchase requires explicit staff approval before automatic expiration.',409,['expirationBlockers'=>['TRANSACTION_REQUIRES_EXPLICIT_STAFF_APPROVAL']]);
+            if($t['payment_status']!=='pending' || $t['dispensing_status']!=='pending' || self::cents($t['amount_paid'])!==0)
+                throw new KioskError('PAYMENT_IN_PROGRESS','Payment or dispensing is active. Preserve this purchase and ask for assistance.');
+            $due=$this->one('SELECT (NOW()>=DATE_ADD(created_at,INTERVAL 5 MINUTE)) due FROM transactions WHERE id=?',[$id]);
+            if(!(bool)$due['due']) throw new KioskError('PAYMENT_NOT_EXPIRED','The server payment deadline has not been reached.');
+            $payments=$this->one('SELECT * FROM payments WHERE transaction_id=? FOR UPDATE',[$id]);
+            if(!$payments || $payments['status']!=='pending' || self::cents($payments['amount_inserted'])!==0 ||
+                $this->one('SELECT id FROM payment_events WHERE transaction_id=? LIMIT 1',[$id]) ||
+                $this->one('SELECT id FROM dispensing_requests WHERE transaction_id=? LIMIT 1',[$id]))
+                throw new KioskError('PAYMENT_RECONCILIATION_REQUIRED','Payment state needs reconciliation. This purchase has not been cancelled.');
+            $item=$this->item($id);
+            $inventory=$this->one('SELECT reserved_quantity FROM inventory WHERE medicine_id=? FOR UPDATE',[$item['medicine_id']]);
+            if(!$inventory || (int)$inventory['reserved_quantity']<(int)$item['quantity'])
+                throw new KioskError('PAYMENT_RECONCILIATION_REQUIRED','Stock reservation needs reconciliation. This purchase has not been cancelled.');
+            $isolated=$this->paymentIsolation && $this->paymentIsolation->isSafelyIsolated((int)$t['machine_id'],$id);
+            $blockers=$this->controlledDemoExpiration && !$isolated ? $this->demoExpirationBlockers($id,true) : [];
+            $demo=$this->controlledDemoExpiration && !$isolated && !$blockers;
+            if(!$isolated && !$demo)
+                throw new KioskError('HARDWARE_ISOLATION_REQUIRED',$this->controlledDemoExpiration?'Demo expiration blocked: '.implode(', ',$blockers).'. Do not insert coins; ask staff to check the controller.':'The ESP32 cannot confirm coin input is isolated and all pending pulses are reconciled. Do not insert coins; ask staff for assistance.',409,['expirationBlockers'=>$blockers]);
+            $this->cancelLocked($t,$demo?'Controlled demonstration payment window expired; no late coins assumed':'Payment window expired after verified hardware isolation');
+            $this->exec("INSERT INTO activity_logs(actor_type,action,description,metadata) VALUES('system','payment_session_expired',?,?)",[$demo?'Controlled demonstration unpaid purchase expired; physical isolation is not verified.':'Unpaid purchase safely expired after hardware isolation confirmation.',json_encode(['transaction_id'=>$id,'hardware_isolation_verified'=>(bool)$isolated,'controlled_demonstration'=>$demo])]);
+            return $this->snapshot($id);
+        });
+    }
+
+    public function demoExpirationBlockers(int $id, bool $forExpiration=false): array {
+        if(in_array($id,$this->protectedTransactionIds,true))return ['TRANSACTION_REQUIRES_EXPLICIT_STAFF_APPROVAL'];
+        // Telemetry is NOT physical inhibition. Only permitted by explicit supervised demo policy.
+        $devices=(new CoinPaymentDiagnostics($this->db,$this->machineCode))->activeReports();
+        if(!$devices)return ['CONTROLLER_DIAGNOSTICS_MISSING'];
+        if(count($devices)!==1)return ['MULTIPLE_CONTROLLER_REPORTS'];
+        $d=$devices[0];
+        $checks=[
+            'CONTROLLER_DIAGNOSTICS_STALE'=>($d['fresh']??false),
+            'CONTROLLER_SESSION_MISMATCH'=>($d['bound_transaction_id']??0)===$id,
+            'BACKEND_SESSION_UNVERIFIED'=>($d['backend_session_verified']??false),
+            'PAYMENT_STORAGE_UNHEALTHY'=>($d['storage_healthy']??false),
+            'UNCONFIRMED_PAYMENT_EVENTS'=>($d['pending_events']??-1)===0 && ($d['durable_events']??-1)===0,
+            'COIN_QUEUE_OVERFLOW'=>($d['overflow_events']??-1)===0 && ($d['overflow_pulses']??-1)===0,
+            'INCOMPLETE_COIN_PULSES'=>($d['incomplete_pulses']??true)===false,
+            'PAYMENT_RECONCILIATION_REQUIRED'=>($d['reconciliation_required']??true)===false,
+            'CONTROLLER_BOOT_REVIEW_REQUIRED'=>($d['boot_review_required']??true)===false,
+            'CONTROLLER_BINDING_REVIEW_REQUIRED'=>($d['binding_review_required']??true)===false && ($d['binding_phase']??-1)===0,
+        ];
+        if($this->controlledDemoAutoBinding) {
+            $checks['FIRMWARE_DEMO_MODE_UNCONFIRMED']=($d['controlled_demo_autobind']??false)===true;
+            $checks['AUTOMATIC_BINDING_BLOCKED']=($d['automatic_binding_blocker']??'UNKNOWN')==='NONE';
+            if($forExpiration)$checks['CONTROLLER_EXPIRATION_DRAIN_UNCONFIRMED']=($d['expiration_check_ready']??false)===true;
+        }
+        return array_keys(array_filter($checks,fn($passed)=>!$passed));
+    }
+
+    public function hardwarePaymentSession(int $boundTransactionId=0, string $sessionCheck=''): array
     {
+        if($sessionCheck!=='' && !preg_match('/^[a-fA-F0-9]{16}$/D',$sessionCheck))throw new KioskError('INVALID_SESSION_CHECK','Invalid session freshness check.',422);
+        $policy=['controlled_demo_autobind'=>$this->controlledDemoExpiration && $this->controlledDemoAutoBinding,'session_check'=>$sessionCheck];
+        if($this->machineIssueReviewPending())return $policy+['active'=>false,'previous_session_closed'=>false,'automatic_handoff_safe'=>false,'recovery_review_required'=>true];
         $this->expireUnpaid();
+
+        $previousClosed=$boundTransactionId===0;
+        if($boundTransactionId>0) {
+            $previous=$this->one('SELECT t.* FROM transactions t JOIN machines m ON m.id=t.machine_id WHERE t.id=? AND m.machine_code=?',[$boundTransactionId,$this->machineCode]);
+            // This is a lifecycle fact only, never evidence of physical coin isolation.
+            $previousClosed=$previous && ($previous['payment_status']==='cancelled' || $previous['dispensing_status']==='dispensed' ||
+                ($previous['dispensing_status']==='failed' && $this->adminRecovered($boundTransactionId)));
+        }
 
         $t = $this->one(
             "SELECT
@@ -363,29 +456,34 @@ final class KioskService {
             AND t.checkout_key IS NOT NULL
             AND t.payment_status = 'pending'
             AND t.dispensing_status = 'pending'
-            AND (
-                t.expires_at IS NULL
-                OR t.expires_at >= NOW()
-            )
             ORDER BY t.created_at ASC
             LIMIT 1",
             [$this->machineCode]
         );
 
-        if (!$t) {
-            return [
-                'active' => false
+        if($t && in_array((int)$t['id'],$this->protectedTransactionIds,true)) {
+            return $policy+['active'=>false,'previous_session_closed'=>(bool)$previousClosed,'automatic_handoff_safe'=>false,'binding_blocker'=>'TRANSACTION_REQUIRES_EXPLICIT_STAFF_APPROVAL'];
+        }
+        if (!$t || ($boundTransactionId>0 && (int)$t['id']!==$boundTransactionId && !$previousClosed)) {
+            return $policy + [
+                'active' => false, 'previous_session_closed'=>(bool)$previousClosed, 'automatic_handoff_safe'=>false
             ];
         }
 
         $total = self::cents($t['total_amount']);
         $paid = self::cents($t['amount_paid']);
         $remaining = max(0, $total - $paid);
+        $sessionClock=$this->one('SELECT UNIX_TIMESTAMP(NOW(3))*1000 server_now_ms, UNIX_TIMESTAMP(DATE_ADD(created_at,INTERVAL 5 MINUTE))*1000 deadline_ms FROM transactions WHERE id=?',[(int)$t['id']]);
 
-        return [
+        return $policy + [
             'active' => true,
+            'previous_session_closed'=>(bool)$previousClosed,
+            'automatic_handoff_safe'=>false,
             'transaction_id' => (int)$t['id'],
+            'server_now_ms'=>(float)$sessionClock['server_now_ms'],
+            'payment_deadline_ms'=>(float)$sessionClock['deadline_ms'],
             'transaction_code' => $t['transaction_code'],
+            'transaction_reference' => $t['transaction_code'],
             'total_amount' => self::money($total),
             'amount_paid' => self::money($paid),
             'remaining_amount' => self::money($remaining),
@@ -394,6 +492,14 @@ final class KioskService {
     }
 
     /** Only a trusted hardware caller may enter this boundary. Amount is a coin delta. */
+    public function verifyCoin(int $id,string $eventId,mixed $amount): array {
+        $result=$this->coin($id,$eventId,$amount);
+        $event=$this->one('SELECT amount FROM payment_events WHERE transaction_id=? AND event_id=?',[$id,$eventId]);
+        if(!$event)throw new KioskError('PAYMENT_UNCONFIRMED','Payment event needs reconciliation.');
+        $result['paymentEvent']=['recorded'=>true,'transactionId'=>$id,'eventId'=>$eventId,'amount'=>(float)$event['amount']];
+        return $result;
+    }
+
     public function coin(int $id,string $eventId,mixed $amount): array {
         $delta=self::cents($amount);
         if($delta<1||!preg_match('/^[a-zA-Z0-9:_-]{1,100}$/D',$eventId)) throw new KioskError('INVALID_COIN_EVENT','A positive coin amount and stable event ID are required.',422);
@@ -402,7 +508,7 @@ final class KioskService {
             if(!$t['checkout_key']) throw new KioskError('LEGACY_TRANSACTION','Legacy purchases require staff reconciliation.');
             $event=$this->one('SELECT amount FROM payment_events WHERE transaction_id=? AND event_id=?',[$id,$eventId]);
             if($event) { if(self::cents($event['amount'])!==$delta) throw new KioskError('EVENT_CONFLICT','Coin event already recorded with a different amount.'); return $this->snapshot($id); }
-            if($t['payment_status']==='cancelled'||($t['payment_status']==='pending'&&self::cents($t['amount_paid'])===0&&(bool)$t['is_expired'])) throw new KioskError('PAYMENT_CLOSED','This coin session is closed. Contact assistance.');
+            if($t['payment_status']==='cancelled') throw new KioskError('PAYMENT_CLOSED','This coin session is closed. Contact assistance.');
             $inserted=self::cents($t['amount_paid'])+$delta; $paid=$inserted>=self::cents($t['total_amount']);
             $this->exec('INSERT INTO payment_events(transaction_id,event_id,amount) VALUES(?,?,?)',[$id,$eventId,self::money($delta)]);
             $this->exec('UPDATE transactions SET amount_paid=?,change_amount=0,payment_status=?,expires_at=NULL WHERE id=?',[self::money($inserted),$paid?'successful':'pending',$id]);
@@ -418,7 +524,7 @@ final class KioskService {
             // Money is durably recorded even if a slot was disabled during payment.
             $this->exec("UPDATE transactions SET dispensing_status='failed' WHERE id=?",[$t['id']]); return;
         }
-        $payload=['transaction_id'=>(int)$t['id'],'slot_id'=>(int)$slot['id'],'slot_number'=>(int)$slot['slot_number'],'motor_id'=>$slot['motor_id'],'sensor_id'=>$slot['sensor_id'],'requested_quantity'=>(int)$item['quantity'],'next_unit_number'=>1];
+        $payload=['transaction_id'=>(int)$t['id'],'transaction_reference'=>$t['transaction_code'],'slot_id'=>(int)$slot['id'],'slot_number'=>(int)$slot['slot_number'],'motor_id'=>$slot['motor_id'],'sensor_id'=>$slot['sensor_id'],'requested_quantity'=>(int)$item['quantity'],'next_unit_number'=>1];
         $this->exec('INSERT INTO dispensing_requests(transaction_id,machine_id,slot_id,quantity,command_reference,command_payload) VALUES(?,?,?,?,?,?)',[$t['id'],$slot['machine_id'],$slot['id'],$item['quantity'],'DISP-'.bin2hex(random_bytes(16)),json_encode($payload)]);
         $this->exec("UPDATE transactions SET dispensing_status='dispensing' WHERE id=?",[$t['id']]);
     }
@@ -523,7 +629,12 @@ final class KioskService {
 
             // Serialize command dispatch with admin recovery on the transaction lock.
             // Never retry a transaction containing a hardware command.
-            $this->firebase->sendDispenseCommand($requestId, (int)$mapping['slot_number'], (int)$mapping['requested_quantity']);
+            if((int)$mapping['transaction_id']!==(int)$t['id'] || (int)$request['transaction_id']!==(int)$t['id'] ||
+                (isset($mapping['transaction_reference']) && $mapping['transaction_reference']!==$t['transaction_code']))
+                throw new KioskError('TRANSACTION_MISMATCH','Dispense request identity requires investigation.');
+            if($this->firebase instanceof TransactionReferenceGateway)
+                $this->firebase->sendReferencedDispenseCommand($requestId,(int)$mapping['slot_number'],(int)$mapping['requested_quantity'],(int)$t['id'],$t['transaction_code']);
+            else $this->firebase->sendDispenseCommand($requestId, (int)$mapping['slot_number'], (int)$mapping['requested_quantity']);
             return [
                 'dispensing_request_id' => $requestId,
                 'command_reference' => $request['command_reference'],
@@ -577,6 +688,7 @@ final class KioskService {
         return $this->atomic(function () use ($id, $body, $actor, $reason) {
             $t = $this->transaction($id, true);
             if (($body['transaction_code'] ?? '') !== $t['transaction_code']) throw new KioskError('TRANSACTION_MISMATCH','Transaction confirmation does not match.',422);
+            if($this->issueReview($id))throw new KioskError('USE_OUTCOME_REVIEW','Use Resolve Dispensing Issue to continue this physical outcome review.');
             if ($this->adminRecovered($id)) {
                 if (array_key_exists('physical_stock',$body)) $this->reconcileRecoveredStock($id,$body['physical_stock'],$actor,$reason);
                 return $this->snapshot($id);
@@ -617,6 +729,7 @@ final class KioskService {
         $this->exec("INSERT INTO activity_logs(actor_type,actor_user_id,action,description,metadata) VALUES('user',?,'dispense_stock_reconciled',?,?)",[(int)$actor['id'],'Physical stock checked after dispensing recovery. '.$reason,json_encode(['transaction_id'=>$id,'slot_id'=>(int)$slot['id'],'medicine_id'=>(int)$item['medicine_id'],'previous_quantity'=>$previous,'physical_stock'=>$count,'reason'=>$reason])]);
     }
     private function adminRecovered(int $id): bool {
+        if($this->issueReview($id))return true;
         return $this->one("SELECT id FROM activity_logs WHERE action='admin_dispense_recovered' AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.transaction_id'))=? LIMIT 1",[(string)$id]) !== null;
     }
     /** Observation only: no motor command, stock movement, or terminal status change. */
@@ -630,16 +743,50 @@ final class KioskService {
             $this->exec("INSERT INTO activity_logs(actor_type,action,description,metadata) VALUES('system','dispensing_confirmation_timeout',?,?)",['No final ESP32 confirmation within 120 seconds. Hardware state unknown; recovery required.',json_encode(['transaction_id'=>$id,'request_id'=>(int)$r['id'],'reason'=>'confirmation_deadline_exceeded','timeout_seconds'=>120,'observed_elapsed_seconds'=>(int)$r['elapsed'],'hardware_stopped_verified'=>false])]);
         });
     }
+    public function transactionRecordDetails(int $id,array $actor): array {
+        if(!in_array($actor['role_code']??'', ['admin','super_admin','staff'],true))throw new KioskError('FORBIDDEN','Transaction access required.',403);
+        $transaction=$this->snapshot($id);
+        $q=$this->db->prepare("SELECT id,actor_user_id,action,description,metadata,created_at FROM activity_logs WHERE JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.transaction_id'))=? OR JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.request_id')) IN (SELECT CAST(id AS CHAR) FROM dispensing_requests WHERE transaction_id=?) ORDER BY id DESC LIMIT 200");$q->execute([(string)$id,$id]);
+        $admin=in_array($actor['role_code'],['admin','super_admin'],true);$history=[];$reason=null;
+        foreach($q->fetchAll() as $row){
+            $metadata=json_decode($row['metadata']??'null',true)??[];
+            $allowed=['reason','outcome','verifiedQuantity','sensorConfirmedQuantity','obligationStatus','confirmed_quantity','requested_quantity','quantity'];
+            if($admin)$allowed=array_merge($allowed,['notes','obligationReference']);
+            $safe=array_intersect_key($metadata,array_flip($allowed));
+            if(!$reason&&in_array($row['action'],['transaction_cancelled','payment_session_expired','dispensing_failed','dispensing_confirmation_timeout'],true))$reason=$metadata['reason']??$row['description'];
+            $description=$row['description'];
+            if(!$admin&&in_array($row['action'],['admin_dispense_recovered','dispense_stock_reconciled'],true))$description='Admin physical recovery recorded.';
+            $history[]=['id'=>(int)$row['id'],'actorId'=>$row['actor_user_id']?(int)$row['actor_user_id']:null,'action'=>$row['action'],'description'=>$description,'createdAt'=>$row['created_at'],'details'=>$safe];
+        }
+        return ['transaction'=>$transaction,'reason'=>$reason,'history'=>$history];
+    }
     public function snapshot(int $id): array {
         $t=$this->transaction($id); $item=$this->item($id);
-        $r=$this->one('SELECT dr.*, GREATEST(0,TIMESTAMPDIFF(SECOND,COALESCE(dr.sent_at,dr.requested_at),NOW())) AS wait_seconds FROM dispensing_requests dr WHERE transaction_id=? ORDER BY id DESC LIMIT 1',[$id]);
+        $r=$this->one('SELECT dr.*, UNIX_TIMESTAMP(dr.completed_at)*1000 AS completed_ms, GREATEST(0,TIMESTAMPDIFF(SECOND,COALESCE(dr.sent_at,dr.requested_at),NOW())) AS wait_seconds FROM dispensing_requests dr WHERE transaction_id=? ORDER BY id DESC LIMIT 1',[$id]);
         $slot=$this->one('SELECT slot_number FROM machine_slots WHERE id=?',[$item['slot_id']]);
         $stmt=$this->db->prepare('SELECT * FROM transaction_items WHERE transaction_id=? ORDER BY id');
         $stmt->execute([$id]);
         $allItems=array_map(fn($line)=>['medicineId'=>(int)$line['medicine_id'],'medicineName'=>$line['medicine_name_snapshot'],'quantity'=>(int)$line['quantity'],'unitPrice'=>(float)$line['unit_price_snapshot'],'subtotal'=>(float)$line['subtotal']],$stmt->fetchAll());
         $inserted=(float)$t['amount_paid']; $total=(float)$t['total_amount'];
         $recovered = $t['dispensing_status'] === 'failed' && $this->adminRecovered($id);
+        $issue=$this->issueReview($id);
+        $issueSummary=$issue?array_intersect_key($issue,array_flip(['revision','outcome','verifiedQuantity','sensorConfirmedQuantity','requestedQuantity','reviewRequired','inspectionComplete','stockVerified','returnRequested','obligationStatus']))+['machineReuseReady'=>$this->issueReturnReady($id,$issue)]:null;
+        if($issueSummary)$issueSummary+=['machineReviewRequired'=>$this->issueMachinePending($issue),'customerObligationPending'=>$this->issueCustomerPending($issue)];
         $stockReconciled = $recovered && $this->one("SELECT id FROM activity_logs WHERE action='dispense_stock_reconciled' AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.transaction_id'))=? LIMIT 1",[(string)$id]) !== null;
-        return ['dispensingWaitSeconds'=>$r?(int)$r['wait_seconds']:0,'adminRecovered'=>$recovered,'stockReconciled'=>$stockReconciled,'id'=>$t['transaction_code'],'databaseId'=>$id,'items'=>$allItems,'total'=>$total,'amountPaid'=>$inserted,'insertedAmount'=>$inserted,'remainingAmount'=>max(0,round($total-$inserted,2)),'overpaymentAmount'=>max(0,round($inserted-$total,2)),'change'=>0,'paymentStatus'=>$t['payment_status'],'coinStatus'=>$inserted>$total?'OVERPAYMENT':($t['payment_status']==='successful'?'PAID':($inserted>0?'PARTIAL':'WAITING_FOR_COINS')),'dispensingStatus'=>$t['dispensing_status'],'requestedQuantity'=>(int)$item['quantity'],'dispensedQuantity'=>$r?(int)$r['dispensed_quantity']:0,'dispensingRequestId'=>$r?(int)$r['id']:null,'createdAt'=>$t['created_at'],'slotNumber'=>$slot?(int)$slot['slot_number']:null,'expiresAt'=>$t['expires_at']];
+        if($issue)$stockReconciled=$issue['stockVerified']&&!$this->issueMachinePending($issue);
+        // MySQL evaluates both timestamps in the same time zone; no browser date parsing.
+        // Persisted creation time anchors the advisory window across recovery/refresh.
+        $clock=$this->one('SELECT UNIX_TIMESTAMP(NOW(3))*1000 server_now_ms, UNIX_TIMESTAMP(DATE_ADD(created_at,INTERVAL 5 MINUTE))*1000 deadline_ms FROM transactions WHERE id=?',[$id]);
+        $expiry=$this->one("SELECT UNIX_TIMESTAMP(DATE_ADD(created_at,INTERVAL 3 SECOND))*1000 return_at_ms FROM activity_logs WHERE action='payment_session_expired' AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.transaction_id'))=? ORDER BY id LIMIT 1",[(string)$id]);
+        $demoHandoff=false;
+        if($this->controlledDemoExpiration && $this->controlledDemoAutoBinding && $t['payment_status']==='successful' && $t['dispensing_status']==='dispensed' && self::cents($inserted)===self::cents($total) && $r && (int)$r['dispensed_quantity']===(int)$item['quantity'] && !$this->demoExpirationBlockers($id)) {
+            $reports=(new CoinPaymentDiagnostics($this->db,$this->machineCode))->activeReports();
+            $demoHandoff=count($reports)===1 && $r['completed_ms']!==null && (float)$reports[0]['reportedAtMs']>=(float)$r['completed_ms'];
+        }
+        $paymentWindow=['serverNowMs'=>(float)$clock['server_now_ms'],'deadlineMs'=>(float)$clock['deadline_ms'],'automaticExpirationEnabled'=>$this->paymentIsolation!==null||$this->controlledDemoExpiration,'controlledDemonstration'=>$this->controlledDemoExpiration,'controlledDemoAutoBinding'=>$this->controlledDemoExpiration && $this->controlledDemoAutoBinding,'hardwarePauseSupported'=>false,
+            'expirationBlockers'=>$this->controlledDemoExpiration && $t['payment_status']==='pending' ? $this->demoExpirationBlockers($id,true) : []];
+        $paymentExpiry=$expiry && $t['payment_status']==='cancelled' ? ['confirmed'=>true,'returnAtMs'=>(float)$expiry['return_at_ms']] : null;
+        $receipt=TransactionReceipt::evaluate($t,$this->one('SELECT * FROM payments WHERE transaction_id=?',[$id]),$r,$allItems,$issue,!$issue&&$t['dispensing_status']==='dispensed'&&$this->adminRecovered($id));
+        return ['currency'=>$t['currency']??'PHP','receipt'=>$receipt,'customerHandoffSafe'=>$demoHandoff,'customerHandoffMode'=>$demoHandoff?'controlled_demo_assumption':'unverified','customerHandoffBlocker'=>$demoHandoff?null:'COIN_ACCEPTANCE_CONTROL_UNVERIFIED','paymentExpiry'=>$paymentExpiry,'paymentWindow'=>$paymentWindow,'dispensingWaitSeconds'=>$r?(int)$r['wait_seconds']:0,'issueRecovery'=>$issueSummary,'sensorConfirmedQuantity'=>$r?(int)$r['dispensed_quantity']:0,'adminRecovered'=>$recovered,'stockReconciled'=>$stockReconciled,'id'=>$t['transaction_code'],'databaseId'=>$id,'items'=>$allItems,'total'=>$total,'amountPaid'=>$inserted,'insertedAmount'=>$inserted,'remainingAmount'=>max(0,round($total-$inserted,2)),'overpaymentAmount'=>max(0,round($inserted-$total,2)),'change'=>0,'paymentStatus'=>$t['payment_status'],'coinStatus'=>$inserted>$total?'OVERPAYMENT':($t['payment_status']==='successful'?'PAID':($inserted>0?'PARTIAL':'WAITING_FOR_COINS')),'dispensingStatus'=>$t['dispensing_status'],'requestedQuantity'=>(int)$item['quantity'],'dispensedQuantity'=>$issue?(int)$issue['verifiedQuantity']:($r?(int)$r['dispensed_quantity']:0),'dispensingRequestId'=>$r?(int)$r['id']:null,'createdAt'=>$t['created_at'],'slotNumber'=>$slot?(int)$slot['slot_number']:null,'expiresAt'=>$t['expires_at']];
     }
 }

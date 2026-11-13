@@ -1,0 +1,73 @@
+/* Visual system for records, reports, team management and audit history only. */
+.admin-section-heading { display:flex; align-items:center; gap:16px; padding:8px 0 4px; }
+.admin-section-icon { flex:0 0 auto; display:grid; place-items:center; width:54px; height:54px; border-radius:17px; color:#266ed0; background:linear-gradient(140deg,#e7f1ff,#d6e7ff); border:1px solid #c3dafa; box-shadow:0 4px 12px #2369b90c; }
+.admin-section-heading h2 { margin:0 0 6px; font-size:24px; color:#234266; font-weight:750; letter-spacing:-.035em; }
+.admin-section-heading p { margin:0; color:#7086a1; font-size:13px; line-height:1.5; }
+.admin-section-mint .admin-section-icon { color:#24856b; border-color:#b9e2d3; background:linear-gradient(140deg,#e7f8f0,#d1efe3); }
+.admin-section-amber .admin-section-icon { color:#ae7a30; border-color:#efdab8; background:linear-gradient(140deg,#fff4df,#ffe9c3); }
+.admin-section-lavender .admin-section-icon { color:#8563b0; border-color:#dccbeb; background:linear-gradient(140deg,#f3ecfc,#e8dbf8); }
+.app-shell .admin-record-page { gap:21px; padding-bottom:28px; }
+.app-shell .admin-record-page>.page-stack { gap:20px; }
+.app-shell .admin-record-page .panel { border:1px solid #d4e2f3; border-radius:19px; box-shadow:0 7px 24px #194b8c0e; }
+.app-shell .admin-record-page .panel-head { padding:23px 24px; gap:14px; }
+.app-shell .admin-record-page .panel h2 { color:#234367; font-size:18px; font-weight:700; }
+.app-shell .admin-record-page .panel-kicker { font-size:10px; color:#7d94b0; letter-spacing:.12em; }
+.app-shell .admin-record-page :is(.page-toolbar,.employee-list-toolbar) { display:flex; gap:12px; flex-wrap:wrap; align-items:center; padding:17px; border:1px solid #d9e5f4; border-radius:16px; background:linear-gradient(120deg,#f1f7ff,#fff); }
+.app-shell .admin-record-page :is(.toolbar-actions,.report-filter-bar) { gap:10px; flex-wrap:wrap; }
+.app-shell .admin-record-page :is(select,.filter-box) { min-height:42px; border-radius:10px; border:1px solid #cfdef2; background:#fff; color:#476486; }
+.app-shell .admin-record-page :is(select,input) { font-size:12px; }
+.app-shell .admin-record-page .filter-box { padding:0 12px; gap:8px; }
+.app-shell .admin-record-page .filter-box input { width:190px; min-width:0; background:transparent; }
+.app-shell .admin-record-page select { padding:9px 30px 9px 12px; max-width:100%; }
+.app-shell .admin-record-page :is(.primary-button,.secondary-button) { min-height:40px; font-size:12px; border-radius:10px; padding:10px 14px; }
+.app-shell .admin-record-page .primary-button { background:linear-gradient(135deg,#2e7ded,#2063cf); box-shadow:0 4px 12px #246bfe20; }
+.app-shell .admin-record-page .secondary-button { background:#fff; border-color:#d2e1f3; color:#496787; }
+.app-shell .admin-record-page .primary-button:disabled { background:#dce5f2; color:#74869d; box-shadow:none; }
+.app-shell .admin-record-page th { padding:14px 20px; background:#f4f8fe; color:#7b91ae; font-size:10px; letter-spacing:.065em; border-color:#e5edf8; }
+.app-shell .admin-record-page td { padding:17px 20px; color:#5b7493; font-size:12px; border-color:#edf2f9; vertical-align:middle; }
+.app-shell .admin-record-page td strong { font-size:12px; color:#2d4c72; font-weight:650; }
+.app-shell .admin-record-page td small { font-size:11px; color:#8397af; line-height:1.5; }
+.app-shell .admin-record-page tbody tr:hover td { background:#f7faff; }
+.app-shell .admin-record-page .status-badge { padding:6px 10px; border-radius:20px; font-size:10px; white-space:nowrap; }
+.app-shell .admin-record-page .row-action { min-height:34px; padding:7px 10px; border-radius:8px; background:#eff5ff; font-size:11px; }
+.app-shell .admin-record-page .ledger-note { font-size:11px; padding:7px 10px; background:#eaf7f0; border-radius:8px; white-space:nowrap; }
+.app-shell .transactions-page td:first-child { white-space:normal; min-width:180px; max-width:260px; overflow-wrap:anywhere; }
+.app-shell .transactions-page td:last-child { min-width:160px; }
+.app-shell .transactions-page .row-action { margin:3px 3px 3px 0; }
+.app-shell .admin-record-page :is(.activity-pagination,.activity-pagination-controls) { gap:8px; }
+.app-shell .admin-record-page .activity-pagination { padding:18px 22px; background:#fbfdff; border-top:1px solid #e8eff8; color:#7289a4; font-size:12px; flex-wrap:wrap; }
+.app-shell .admin-record-page .activity-pagination button { min-height:34px; min-width:34px; padding:7px 10px; border-radius:8px; font-size:11px; }
+.app-shell .admin-record-page .report-view-tabs { display:flex; align-self:flex-start; padding:5px; gap:5px; border-radius:13px; border:1px solid #d1e0f3; background:#eaf2fd; }
+.app-shell .admin-record-page .report-view-tabs .secondary-button { background:transparent; border-color:transparent; }
+.app-shell .reports-page .inventory-summary { gap:16px; }
+.app-shell .reports-page .inventory-summary>div { position:relative; padding:23px; min-height:115px; gap:10px; border:1px solid #c8dbf6; border-radius:17px; background:linear-gradient(135deg,#e2edff,#f3f8ff); box-shadow:0 5px 15px #194b8c09; }
+.app-shell .reports-page .inventory-summary>div:nth-child(2) { background:linear-gradient(135deg,#e9e0fb,#f7f2ff); border-color:#d9c8ec; }
+.app-shell .reports-page .inventory-summary>div:nth-child(3) { background:linear-gradient(135deg,#fff0d9,#fff8ed); border-color:#efdab8; }
+.app-shell .reports-page .inventory-summary>div:nth-child(4) { background:linear-gradient(135deg,#ffe7ee,#fff5f7); border-color:#f0cdd7; }
+.app-shell .reports-page .sales-report-page .inventory-summary>div:first-child { background:linear-gradient(135deg,#d9f1e7,#edf9f3); border-color:#b9e2d3; }
+.app-shell .reports-page .inventory-summary span { color:#657e9d; font-size:12px; }
+.app-shell .reports-page .inventory-summary strong { color:#24466d; font-size:28px; font-weight:750; letter-spacing:-.035em; }
+.app-shell .reports-page .page-subtitle { color:#768ca6; font-size:12px; line-height:1.7; }
+.app-shell .employees-page .employee-table { min-width:1080px; }
+.app-shell .employees-page td .avatar { width:42px; height:42px; border-radius:13px; box-shadow:0 3px 10px #24466d12; }
+.app-shell .employees-page .employee-table td:last-child { min-width:240px; }
+.app-shell .employees-page .employee-table td:last-child button { margin:3px 2px; font-size:11px; min-height:34px; padding:7px 10px; }
+.app-shell .employees-page .employee-table td select { width:190px; font-size:11px; }
+.employee-state { display:inline-flex; padding:6px 10px; border-radius:20px; font-size:11px; font-weight:650; color:#718198; background:#edf1f6; }
+.employee-state.active { color:#26785c; background:#e5f5ed; }
+.employee-state.locked { color:#b34e60; background:#ffedf1; }
+.app-shell .employees-page .action-deactivate { color:#b16b38; background:#fff6eb; border-color:#efdbc4; }
+.app-shell .employees-page .action-activate { color:#26785c; background:#eaf7f0; border-color:#c9e6d9; }
+.app-shell .employees-page .action-edit { color:#2e6fc7; background:#edf5ff; }
+.app-shell .activity-page td:last-child { white-space:normal; min-width:300px; max-width:650px; line-height:1.65; }
+.app-shell .activity-page .activity-metadata { margin-top:8px; padding:8px 10px; border-radius:8px; background:#f3f7fc; color:#7d92aa; overflow-wrap:anywhere; }
+.activity-action-chip { display:inline-flex; padding:6px 9px; border:1px solid #d7e5f8; border-radius:8px; background:#edf4ff; color:#4875af; font-size:11px; font-weight:600; }
+.app-shell .employee-create-page .form-grid { padding:0 24px 24px; gap:20px; }
+.app-shell .employee-create-page .form-grid label { font-size:12px; gap:8px; }
+.app-shell .employee-create-page .form-grid input { min-height:44px; border-radius:10px; font-size:13px; }
+.app-shell .employee-create-page .panel>.primary-button { margin:0 24px 24px; }
+.app-shell .admin-record-page button:focus-visible { outline:3px solid #b0cfff; outline-offset:3px; }
+@media(max-width:1150px) { .app-shell .reports-page .inventory-summary { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media(max-width:700px) { .admin-section-heading h2 { font-size:21px; } .admin-section-heading { gap:12px; } .admin-section-icon { width:46px; height:46px; border-radius:14px; } .app-shell .admin-record-page .page-toolbar { align-items:stretch; flex-direction:column; } .app-shell .admin-record-page .filter-box { flex:1; } .app-shell .admin-record-page .panel-head { padding:20px; flex-wrap:wrap; } .app-shell .admin-record-page .inventory-summary strong { font-size:23px; } .app-shell .admin-record-page .activity-pagination { align-items:flex-start; } }
+@media(max-width:450px) { .app-shell .reports-page .inventory-summary { grid-template-columns:1fr; } .app-shell .admin-record-page .report-view-tabs { width:100%; } .app-shell .admin-record-page .report-view-tabs button { flex:1; } }
+.a11y-contrast .app-shell .admin-record-page :is(.panel,.inventory-summary>div,.page-toolbar) { border-color:#52657e; background:#fff; }

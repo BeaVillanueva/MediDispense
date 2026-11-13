@@ -1,0 +1,60 @@
+.receipt-card.transaction-record { width:min(660px,calc(100vw - 32px)); font-size:14px; color:#30435e; }
+.transaction-record .receipt-meta { grid-template-columns:minmax(100px,1fr) minmax(0,2fr); font-size:13px; }.transaction-record .receipt-meta strong { overflow-wrap:anywhere; }
+.transaction-record .receipt-row { grid-template-columns:minmax(0,1fr) 70px 90px 90px; font-size:13px; }.transaction-record .receipt-totals>div { font-size:13px; }
+.receipt-store { margin:8px 0 0; font-size:13px; color:#60738c; }.record-notice,.record-verification { padding:12px; border:1px solid #d5e3f3; background:#f4f8ff; border-radius:8px; font-size:13px; }
+.record-details { font-size:13px; }.record-details h3 { font-size:15px; }.record-details dl { display:grid; grid-template-columns:1fr auto; gap:6px; }.record-details dd { margin:0; font-weight:600; }
+.record-details article { margin-top:10px; padding:10px; border:1px solid #d5e3f3; border-radius:8px; overflow-wrap:anywhere; }.record-details small { display:block; margin-top:4px; color:#60738c; }.record-details p { margin:6px 0; }
+.record-error { color:#b42318; }.receipt-save-note { color:#60738c; font-size:12px; }
+.transaction-record .receipt-actions button { min-height:44px; font-size:13px; }
+@media(max-width:480px) { .transaction-record .receipt-row { grid-template-columns:minmax(0,1fr) 50px 66px 66px; gap:4px; font-size:11px; }.transaction-record .receipt-meta { font-size:12px; } }
+@media print { .transaction-record .receipt-meta,.transaction-record .receipt-row,.transaction-record .receipt-totals>div { font-size:11pt; }.transaction-record .receipt-store { font-size:12pt; }.transaction-record .receipt-actions { display:none!important; } }
+/* Staff-friendly transaction details; successful receipt/print layout stays shared. */
+.receipt-card.record-purchase-details { width:min(700px,calc(100vw - 32px)); padding:26px; text-align:left; border:1px solid #d2e1f4; border-radius:22px; }
+.record-purchase-details .receipt-heading { text-align:left; align-items:flex-start; margin-bottom:20px; }
+.record-purchase-details .receipt-heading h2 { font-size:23px; font-weight:700; color:#234268; }
+.purchase-details-summary { display:grid; gap:17px; }
+.purchase-status { display:flex; align-items:flex-start; gap:13px; padding:18px; border-radius:15px; background:#eff4fa; border:1px solid #d8e3f1; }
+.purchase-status-icon { display:grid; place-items:center; flex:0 0 auto; width:44px; height:44px; color:#637b99; background:#fff; border-radius:13px; }
+.purchase-status h3 { font-size:18px; font-weight:700; margin:0 0 6px; color:#2d4b70; }
+.purchase-status p { font-size:13px; line-height:1.6; margin:0; color:#637b97; }
+.purchase-status-info { background:#edf5ff; border-color:#cfe1f9; }
+.purchase-status-cancelled { background:linear-gradient(135deg,#ffe8ec,#fff3f5); border-color:#efbdc8; }
+.purchase-status-cancelled .purchase-status-icon { color:#c54d64; background:#fff6f8; }
+.purchase-status-cancelled h3 { color:#a83b50; }
+.purchase-status-cancelled p { color:#a56674; }
+.purchase-status-info .purchase-status-icon { color:#3276cb; }
+.purchase-status-warning { background:#fff6e9; border-color:#efdcc1; }
+.purchase-status-warning .purchase-status-icon { color:#ae7e38; }
+.purchase-medicines { border:1px solid #dde7f5; border-radius:14px; overflow:hidden; }
+.purchase-medicine { display:flex; align-items:center; gap:12px; padding:16px; background:#fff; }
+.purchase-medicine+.purchase-medicine { border-top:1px solid #e7eef8; }
+.purchase-medicine-icon { display:grid; place-items:center; flex:0 0 auto; width:42px; height:42px; border-radius:12px; color:#3476ca; background:#eaf3ff; }
+.purchase-medicine>div:nth-child(2) { flex:1; min-width:0; }
+.purchase-medicine h3 { margin:0 0 5px; color:#294970; font-size:16px; font-weight:650; overflow-wrap:anywhere; }
+.purchase-medicine p { margin:0; font-size:12px; color:#7b90aa; }
+.purchase-medicine>strong { color:#294970; font-size:16px; }
+.purchase-facts { display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+.purchase-facts section { padding:17px; border-radius:14px; border:1px solid #d6e5f7; background:linear-gradient(135deg,#eef5ff,#f9fbff); }
+.purchase-fact-label { display:flex; align-items:center; gap:7px; color:#6281a4; font-size:12px; font-weight:600; }
+.purchase-facts strong { display:block; margin:10px 0 6px; color:#2d5f9d; font-size:25px; font-weight:750; }
+.purchase-facts section>span { color:#7a8fa9; font-size:12px; }
+.purchase-facts section:first-child { background:linear-gradient(135deg,#def4eb,#effaf5); border-color:#bfe3d4; }
+.purchase-facts section:first-child .purchase-fact-label { color:#4b8c76; }
+.purchase-facts section:first-child strong { color:#28765e; }
+.purchase-facts section:first-child>span { color:#698e80; }
+.purchase-facts section:nth-child(2) { background:linear-gradient(135deg,#ece2fc,#f7f2ff); border-color:#dac7ee; }
+.purchase-facts section:nth-child(2) .purchase-fact-label { color:#8a6ca8; }
+.purchase-facts section:nth-child(2) strong { color:#79569e; }
+.purchase-facts section:nth-child(2)>span { color:#9580aa; }
+.purchase-reference { margin:0; padding:0 2px; display:grid; gap:11px; }
+.purchase-reference>div { display:flex; justify-content:space-between; gap:16px; font-size:12px; }
+.purchase-reference dt { color:#7a8fa8; }
+.purchase-reference dd { margin:0; text-align:right; color:#426184; font-weight:600; overflow-wrap:anywhere; max-width:70%; }
+.record-purchase-details .record-details { margin-top:20px; }
+.record-purchase-details .record-extra { border-top:1px solid #e4edf8; padding:13px 0; }
+.record-purchase-details .record-extra summary { color:#6581a2; font-weight:600; font-size:13px; cursor:pointer; min-height:30px; }
+.record-purchase-details .record-extra[open] summary { margin-bottom:12px; }
+.record-purchase-details .record-extra p { color:#7087a2; font-size:12px; line-height:1.7; overflow-wrap:anywhere; }
+.record-purchase-details .receipt-actions { position:sticky; bottom:-26px; padding:14px 0 6px; margin-top:8px; background:#fff; border-top:1px solid #e6eef8; }
+.record-purchase-details .receipt-actions .primary-button { min-width:110px; }
+@media(max-width:480px) { .receipt-card.record-purchase-details { padding:20px; } .purchase-status { padding:14px; } .purchase-facts { gap:9px; } .purchase-facts section { padding:13px; } .purchase-facts strong { font-size:22px; } .purchase-reference>div { flex-direction:column; gap:4px; } .purchase-reference dd { max-width:100%; text-align:left; } .record-purchase-details .receipt-actions { bottom:-20px; } }

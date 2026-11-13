@@ -6,9 +6,12 @@ require_once __DIR__ . '/../src/Database.php';
 require_once __DIR__ . '/../src/Http/Response.php';
 require_once __DIR__ . '/../src/Http/DevelopmentCors.php';
 require_once __DIR__ . '/../src/KioskService.php';
+require_once __DIR__ . '/../src/CoinPaymentDiagnostics.php';
 require_once __DIR__ . '/../src/MedicineInventory.php';
+require_once __DIR__ . '/../src/MedicineGuidance.php';
 require_once __DIR__ . '/../src/AlertService.php';
 require_once __DIR__ . '/../src/FirebaseRealtimeDatabase.php';
+require_once __DIR__ . '/../src/MachineMonitoring.php';
 require_once __DIR__ . '/../src/Auth/FirebaseTokenVerifier.php';
 require_once __DIR__ . '/../src/Auth/AdminSecurity.php';
 
@@ -23,7 +26,7 @@ $apiPosition = strpos($path, '/api/');
 if ($apiPosition !== false) { $path = substr($path, $apiPosition); }
 $path = preg_replace('#^/index\.php#', '', $path) ?: '/';
 $path = rtrim($path, '/') ?: '/';
-if (preg_match('#^/api/transactions/(checkout|recover|\d+(?:/cancel)?)$#',$path)) {
+if (preg_match('#^/api/transactions/(checkout|recover|\d+(?:/(?:cancel|expire))?)$#',$path)) {
     $diagnosticStarted=microtime(true);
     $diagnosticPath=preg_replace('#/transactions/\d+#','/transactions/:id',$path);
     register_shutdown_function(static function()use($diagnosticStarted,$diagnosticPath,$method):void {
@@ -56,10 +59,19 @@ try {
         (string)($config['firebase']['database_url'] ?? '')
     );
 
+    $demoFile=__DIR__.'/../config/payment-demo.local.php';
+    $demoConfig=is_file($demoFile)?require $demoFile:[];
+    $demoExpiration=($config['app_env']??'production')!=='production'
+        && is_array($demoConfig) && ($demoConfig['controlled_expiration']??false)===true
+        && ($demoConfig['no_late_coins_assumption_acknowledged']??false)===true;
     $kiosk = new KioskService(
         $db,
         $config['machine_code'],
-        $firebase
+        $firebase,
+        null,
+        $demoExpiration,
+        $demoExpiration && ($demoConfig['automatic_session_binding']??false)===true,
+        $demoExpiration ? array_values(array_filter($demoConfig['protected_transaction_ids']??[],fn($id)=>is_int($id)&&$id>0)) : []
     );
     $verifier = new FirebaseTokenVerifier($config['firebase']['project_id']);
     $security = new AdminSecurity($db);
@@ -207,7 +219,7 @@ try {
 
     if ($path === '/api/medicines' && $method === 'GET') {
         if (($_GET['available'] ?? '0') !== '1') $auth(['super_admin','admin','staff']);
-        Response::json($medicineQuery(($_GET['available'] ?? '0') === '1'));
+        Response::json(MedicineGuidance::attach($db, $medicineQuery(($_GET['available'] ?? '0') === '1')));
     }
     if ($path === '/api/dashboard/summary' && $method === 'GET') {
         $auth(['super_admin','admin','staff']);
@@ -311,6 +323,14 @@ try {
         $db->beginTransaction(); $stmt = $db->prepare('SELECT i.quantity,i.reserved_quantity,m.name FROM inventory i JOIN medicines m ON m.id=i.medicine_id WHERE i.medicine_id=? FOR UPDATE'); $stmt->execute([$medicineId]); $stock = $stmt->fetch(); if (!$stock) Response::error('Inventory record not found.', 404); $previous = (int)$stock['quantity']; $new = $previous + $delta; if ($delta > 0 && $new > 10) throw new KioskError('STOCK_CAPACITY', $previous >= 10 ? 'Stock is already full.' : 'You can only add up to '.(10-$previous).' more items.',422); if ($new < (int)$stock['reserved_quantity']) throw new KioskError('STOCK_RESERVED','Stock cannot be reduced below quantities reserved for active purchases.'); $reason = trim((string)($body['reason'] ?? 'Manual adjustment')); $db->prepare('UPDATE inventory SET quantity=?,last_counted_at=NOW() WHERE medicine_id=?')->execute([$new, $medicineId]); $db->prepare("INSERT INTO stock_movements (medicine_id,previous_quantity,new_quantity,change_quantity,change_type,reason,actor_user_id) VALUES (?,?,?,?,?,?,?)")->execute([$medicineId,$previous,$new,$delta,$delta > 0 ? 'manual_addition' : 'adjustment',$reason,$actor['id']]); if ($delta > 0) { $db->prepare("INSERT INTO notifications (notification_type,title,message,severity,medicine_id) VALUES ('stock_added','Stock added',?,'info',?)")->execute([$stock['name'].': +'.$delta.' items. Current stock: '.$new.'.',$medicineId]); } $db->commit(); $changeVerb = $new >= $previous ? 'increased' : 'decreased'; $log('stock_adjusted', $stock['name'].' stock '.$changeVerb.' from '.$previous.' to '.$new.'. Reason: '.$reason, (int)$actor['id'], 'user', ['medicine_id'=>$medicineId,'medicine_name'=>$stock['name'],'change'=>$delta,'previous'=>$previous,'new'=>$new,'reason'=>$reason]); Response::json(['medicine_id'=>$medicineId,'previous_quantity'=>$previous,'new_quantity'=>$new]);
     }
 
+    if(preg_match('#^/api/transactions/(\d+)/details$#',$path,$matches) && $method==='GET') {
+        $actor=$auth(['super_admin','admin','staff']);
+        Response::json($kiosk->transactionRecordDetails((int)$matches[1],$actor));
+    }
+    if(preg_match('#^/api/transactions/(\d+)/dispensing-issue$#',$path,$matches) && in_array($method,['GET','POST'],true)) {
+        $actor=$auth(['super_admin','admin']);
+        Response::json($method==='GET'?$kiosk->dispensingIssueDetails((int)$matches[1],$actor):$kiosk->resolveDispensingIssue((int)$matches[1],requestBody(),$actor));
+    }
     if (preg_match('#^/api/transactions/(\d+)/recover-stopped$#',$path,$matches) && $method === 'POST') {
         $actor = $auth(['super_admin','admin']);
         Response::json($kiosk->recoverStoppedDispense((int)$matches[1],requestBody(),$actor));
@@ -320,13 +340,27 @@ try {
     if ($path === '/api/transactions/recover' && $method === 'GET') Response::json($kiosk->recover((string)($_GET['request_id'] ?? ''),$kioskToken));
     if (preg_match('#^/api/transactions/(\d+)$#',$path,$matches) && $method === 'GET') Response::json($kiosk->get((int)$matches[1],$kioskToken));
     if (preg_match('#^/api/transactions/(\d+)/cancel$#',$path,$matches) && $method === 'POST') Response::json($kiosk->cancel((int)$matches[1],$kioskToken));
+    if (preg_match('#^/api/transactions/(\d+)/expire$#',$path,$matches) && $method === 'POST') Response::json($kiosk->expirePayment((int)$matches[1],$kioskToken));
+    if ($path === '/api/payments/controllers/retire' && $method === 'POST') {
+        $actor=$auth(['super_admin']);
+        Response::json((new CoinPaymentDiagnostics($db,$config['machine_code'],fn()=>$firebase->controllerReplacementState()))->retire(requestBody(),$actor));
+    }
+    if ($path === '/api/payments/diagnostics' && $method === 'POST') {
+        $hardwareAuth();
+        Response::json((new CoinPaymentDiagnostics($db,$config['machine_code']))->record(requestBody()));
+    }
+    if ($path === '/api/payments/diagnostics' && $method === 'GET') {
+        $auth(['super_admin']);
+        $diagnostics=new CoinPaymentDiagnostics($db,$config['machine_code']);
+        Response::json(($_GET['summary']??'0')==='1'?$diagnostics->selfServiceAssessment():$diagnostics->read());
+    }
     if ($path === '/api/payments/session' && $method === 'GET') {
         $hardwareAuth();
-        Response::json($kiosk->hardwarePaymentSession());
+        Response::json($kiosk->hardwarePaymentSession(max(0,(int)($_GET['bound_transaction_id']??0)),(string)($_GET['session_check']??'')));
     }
     if ($path === '/api/payments/verify' && $method === 'POST') {
         $hardwareAuth(); $body=requestBody();
-        Response::json($kiosk->coin((int)($body['transaction_id'] ?? 0),(string)($body['event_id'] ?? ''),$body['coin_amount'] ?? null));
+        Response::json($kiosk->verifyCoin((int)($body['transaction_id'] ?? 0),(string)($body['event_id'] ?? ''),$body['coin_amount'] ?? null));
     }
     if ($path === '/api/dispense/pending' && $method === 'GET') {
         $hardwareAuth();
@@ -340,7 +374,7 @@ try {
     }
 
     if ($path === '/api/machine/heartbeat' && $method === 'POST') { $hardwareAuth(); $body=requestBody(); $machineId=(int)($body['machine_id'] ?? 1); $stmt=$db->prepare("UPDATE machine_status SET connection_status='online',esp32_status=?,motor_status=?,sensor_status=?,coin_acceptor_status=?,last_communication_at=NOW(),last_payload=? WHERE machine_id=?"); $stmt->execute([$body['esp32_status']??'Ready',$body['motor_status']??'Idle',$body['sensor_status']??'Monitoring',$body['coin_acceptor_status']??'Ready',json_encode($body),$machineId]); Response::json(['machine_id'=>$machineId,'online'=>true,'last_communication_at'=>gmdate('c')]); }
-    if ($path === '/api/machine/status' && $method === 'GET') { $auth(['super_admin','admin','staff']); $machine=$db->query('SELECT m.*,ms.* FROM machines m LEFT JOIN machine_status ms ON ms.machine_id=m.id ORDER BY m.id LIMIT 1')->fetch(); $slots=$db->query('SELECT s.*,m.name AS medicine_name,COALESCE(i.quantity,0) AS quantity FROM machine_slots s LEFT JOIN medicines m ON m.id=s.medicine_id LEFT JOIN inventory i ON i.medicine_id=s.medicine_id ORDER BY s.slot_number')->fetchAll(); Response::json(['machine'=>$machine,'slots'=>$slots]); }
+    if ($path === '/api/machine/status' && $method === 'GET') { $auth(['super_admin','admin','staff']); $machine=$db->query('SELECT m.*,ms.*,TIMESTAMPDIFF(SECOND,ms.last_communication_at,NOW()) heartbeat_age_seconds,UNIX_TIMESTAMP(ms.last_communication_at)*1000 heartbeat_at_ms FROM machines m LEFT JOIN machine_status ms ON ms.machine_id=m.id ORDER BY m.id LIMIT 1')->fetch(); $slots=$db->query('SELECT s.*,m.name AS medicine_name,m.minimum_stock_level,COALESCE(i.quantity,0) AS quantity,GREATEST(0,COALESCE(i.quantity,0)-COALESCE(i.reserved_quantity,0)) AS available_quantity FROM machine_slots s LEFT JOIN medicines m ON m.id=s.medicine_id LEFT JOIN inventory i ON i.medicine_id=s.medicine_id ORDER BY s.slot_number')->fetchAll(); if($machine)$machine=MachineMonitoring::project($machine,(new CoinPaymentDiagnostics($db,$machine['machine_code']))->read()); Response::json(['machine'=>$machine,'slots'=>$slots]); }
     if ($path === '/api/transactions' && $method === 'GET') { $actor=$auth(['super_admin','admin','staff']); $rows=$db->query('SELECT t.*,GROUP_CONCAT(ti.medicine_name_snapshot SEPARATOR ", ") AS medicines FROM transactions t LEFT JOIN transaction_items ti ON ti.transaction_id=t.id GROUP BY t.id ORDER BY t.created_at DESC'.(($_GET['all'] ?? '') === '1' ? '' : ' LIMIT 250'))->fetchAll(); if(($_GET['format']??'')==='client') $rows=array_map(fn($row)=>$kiosk->snapshot((int)$row['id']),$rows); Response::json($rows); }
     if ($path === '/api/notifications' && $method === 'GET') {
         $actor=$auth(['super_admin','admin','staff']);
@@ -431,7 +465,7 @@ try {
     Response::error($e->getMessage(),$e->status,['code'=>$e->errorCode]);
 } catch (KioskError $e) {
     if (isset($db) && $db->inTransaction()) $db->rollBack();
-    Response::error($e->getMessage(), $e->httpStatus, ['code'=>$e->errorCode]);
+    Response::error($e->getMessage(), $e->httpStatus, ['code'=>$e->errorCode]+$e->details);
 } catch (Throwable $e) {
     if (isset($db) && $db instanceof PDO && $db->inTransaction()) $db->rollBack();
     error_log($e->getMessage());

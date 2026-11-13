@@ -25,7 +25,8 @@ $purchase=fn()=>$service->checkout(['request_id'=>bin2hex(random_bytes(16)),'ite
 $t=$purchase(); $service->cancel($t['databaseId'],$token); $service->cancel($t['databaseId'],$token);
 check((int)$db->query("SELECT COUNT(*) FROM activity_logs WHERE action='transaction_cancelled'")->fetchColumn()===1,'Cancellation logged once despite retry');
 $t=$purchase(); $db->exec("UPDATE transactions SET expires_at=DATE_SUB(NOW(),INTERVAL 1 HOUR) WHERE id=".$t['databaseId']); $service->expireUnpaid();
-check($db->query("SELECT description FROM activity_logs ORDER BY id DESC LIMIT 1")->fetchColumn()==='Unpaid purchase expired','Expiry cancellation has accurate reason');
+check($service->get($t['databaseId'],$token)['paymentStatus']==='pending','Unconfirmed hardware state prevents automatic expiry');
+$service->cancel($t['databaseId'],$token);
 $db->exec('UPDATE medicines SET unit_price=0 WHERE id=1');
 $t=$purchase(); $service->sensor($t['dispensingRequestId'],1,true); $service->sensor($t['dispensingRequestId'],1,true);
 check((int)$db->query("SELECT COUNT(*) FROM activity_logs WHERE action='medicine_dispensed'")->fetchColumn()===1,'Confirmed dispense logged once despite retry');

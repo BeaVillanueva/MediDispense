@@ -63,7 +63,7 @@
 .kv-product-copy { padding: 14px 6px 4px; }
 .kv-product-copy .kv-eyebrow { display: none; }
 .kv-product-copy h2 { font-size: clamp(18px, 2vw, 22px); min-height: 2.5em; margin: 0 0 6px; }
-.kv-product-price { margin: 0; gap: 6px; }
+.kv-product-price { margin: 0; gap: 6px; flex-wrap: nowrap; white-space: nowrap; align-items: baseline; }
 .kv-product-price strong { font-size: 27px; color: var(--kv-blue-dark); }
 .kv-product-price span { font-size: 12px; }
 .kv-shell .kv-stock { margin: 6px 0 16px; color: var(--kv-green); font-size: 13px; }
@@ -243,4 +243,129 @@
 @media (max-width: 480px) {
   .kv-review-information, .kv-usage-guide { padding: 14px; }
   .kv-review-information .kv-review-medicine { align-items: flex-start; }
+}
+
+/* Tablet selection, medicine review, then quantity; existing payment styling stays shared. */
+.kv-selection-status:empty { display: none; }
+.kv-products { gap: 22px; }
+.kv-product { padding: 12px; border-radius: 24px; }
+.kv-product-image { height: clamp(230px, 26vw, 320px); }
+.kv-product-copy { padding: 18px 8px 6px; }
+.kv-product-copy h2 { font-size: clamp(23px, 2.5vw, 29px); min-height: 2.4em; overflow-wrap: anywhere; }
+.kv-product-price strong { font-size: 34px; }
+.kv-product .kv-button { min-height: 60px; font-size: 19px; }
+.kv-shell .kv-product .kv-stock { font-size: 16px; }
+.kv-purchase-review .kv-medicine-thumbnail { width: 150px; height: 170px; flex-shrink: 0; }
+.kv-review-guidelines { display: grid; gap: 16px; }
+.kv-review-guidelines > section { padding: 16px 18px; border: 1px solid var(--kv-nested-outline); border-radius: 16px; background: #f5faff; }
+.kv-review-guidelines h2 { margin: 0 0 8px; font-size: 19px; }
+.kv-review-guidelines p { margin: 6px 0; font-size: 17px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.kv-review-guidelines .kv-guideline-note { color: var(--kv-muted); font-size: 15px; }
+.kv-quantity-screen .kv-quantity button { width: 64px; height: 64px; }
+.kv-quantity-screen .kv-quantity output { width: 56px; font-size: 30px; }
+.kv-quantity-screen .kv-quantity-hint { font-size: 15px; }
+@media (min-width: 701px) and (max-width: 900px) and (orientation: portrait) {
+  .kv-products { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+  .kv-product-image { height: 245px; }
+}
+@media (min-width: 900px) and (max-height: 800px) {
+  .kv-product-image { height: 210px; }
+  .kv-product-copy { padding-top: 12px; }
+  .kv-product-copy h2 { min-height: 2.4em; font-size: 23px; }
+}
+@media (max-width: 600px) {
+  .kv-steps { padding: 10px 6px; gap: 4px; }
+  .kv-steps li { font-size: 10px; }
+  .kv-steps li > span { width: 26px; height: 26px; }
+  .kv-products { grid-template-columns: 1fr; }
+  .kv-product-image { height: 250px; }
+  .kv-purchase-review .kv-review-medicine { flex-direction: column; align-items: center; text-align: center; }
+  .kv-purchase-review .kv-label-details > div { justify-content: center; }
+  .kv-actions { flex-wrap: wrap; }
+  .kv-actions .kv-button { flex: 1 1 200px; }
+}
+
+/* Clinical guidance remains readable without obscuring the purchase navigation. */
+.kv-dosage-card { text-align: left; }
+.kv-review-guidelines .kv-dosage-name { font-size: 21px; font-weight: 750; color: var(--kv-ink); }
+.kv-guidance-status { display: inline-block; margin: 6px 0 14px; color: var(--kv-blue-dark); background: #e4efff; border-radius: 10px; padding: 6px 10px; font-size: 14px; }
+.kv-dosage-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 12px 0; }
+.kv-dosage-grid > div { padding: 14px; border: 1px solid var(--kv-nested-outline); border-radius: 14px; background: #fff; }
+.kv-dosage-grid dt { font-size: 15px; font-weight: 750; color: var(--kv-muted); }
+.kv-dosage-grid dd { margin: 6px 0 0; font-size: 18px; line-height: 1.6; white-space: pre-line; overflow-wrap: anywhere; }
+.kv-dosage-precautions { grid-column: 1 / -1; }
+.kv-dosage-source a { color: var(--kv-blue-dark); text-decoration: underline; overflow-wrap: anywhere; }
+.kv-dosage-source a:focus-visible { outline: 2px solid var(--kv-blue); outline-offset: 4px; }
+.kv-dosage-fallback { padding: 14px; border: 1px solid var(--kv-nested-outline); border-radius: 14px; background: #fff; }
+@media (max-width: 600px) { .kv-dosage-grid { grid-template-columns: 1fr; } }
+
+/* Compact review information: image left, catalog details and description right. */
+.kv-purchase-review { padding: 22px 26px; }
+.kv-purchase-review > h1 { margin-bottom: 16px; }
+.kv-purchase-review .kv-review-information { margin: 12px 0; padding: 14px; }
+.kv-purchase-review .kv-review-medicine { align-items: flex-start; padding: 14px; gap: 18px; margin-bottom: 12px; }
+.kv-review-medicine-details { flex: 1; min-width: 0; }
+.kv-review-medicine-details .kv-eyebrow { margin: 0 0 4px; }
+.kv-review-medicine-details h2 { margin: 0 0 6px; }
+.kv-review-medicine-details .kv-label-details { margin-top: 4px; gap: 3px; }
+.kv-review-description { margin-top: 10px; }
+.kv-review-description h3 { margin: 0 0 4px; font-size: 16px; font-weight: 750; }
+.kv-review-description p { margin: 0; font-size: 16px; line-height: 1.5; white-space: pre-line; overflow-wrap: anywhere; color: var(--kv-muted); }
+.kv-purchase-review .kv-review-guidelines { gap: 0; }
+.kv-purchase-review .kv-review-guidelines > section { padding: 12px 14px; }
+.kv-purchase-review > .kv-actions { position: sticky; bottom: 8px; z-index: 2; padding: 8px; border-radius: 18px; background: #fff; box-shadow: var(--kv-nested-shadow); }
+@media (max-width: 600px) {
+  .kv-purchase-review { padding: 18px 14px; }
+  .kv-purchase-review .kv-review-information { padding: 10px; }
+  .kv-purchase-review .kv-review-medicine { gap: 12px; text-align: left; align-items: stretch; }
+  .kv-purchase-review .kv-medicine-thumbnail { align-self: center; }
+  .kv-purchase-review .kv-label-details > div { justify-content: flex-start; }
+}
+
+/* Shared draft navigation stays identical in review and quantity. */
+.kv-draft-navigation { width: 100%; grid-column: 1 / -1; position: sticky; bottom: 8px; z-index: 2; padding: 10px 0 0; border-radius: 18px; background: #fff; }
+.kv-draft-navigation .kv-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.kv-draft-navigation .kv-actions .kv-button { min-height: 58px; padding: 12px 18px; border-radius: 100px; font-size: 16px; line-height: 1.3; min-width: 0; }
+.kv-draft-navigation .kv-button svg { flex-shrink: 0; }
+.kv-draft-navigation .kv-cancel-draft { display: flex; margin: 4px auto 0; min-height: 48px; padding: 8px 18px; font-size: 14px; font-weight: 600; color: var(--kv-muted); background: transparent; border: 1px solid transparent; box-shadow: none; }
+.kv-cancel-draft:hover:not(:disabled) { color: var(--kv-blue-dark); text-decoration: underline; }
+.kv-quantity-screen { gap: 18px 24px; padding: 22px; }
+.kv-quantity-screen .kv-quantity-section { margin: 14px 0; }
+.kv-purchase-review .kv-guidance-status { margin: 2px 0 8px; }
+.kv-purchase-review .kv-dosage-fallback { margin: 6px 0; padding: 10px 12px; }
+@media (max-width: 600px) {
+  .kv-quantity-screen { padding: 16px; gap: 14px; }
+  .kv-draft-navigation .kv-actions { gap: 8px; }
+  .kv-draft-navigation .kv-actions .kv-button { padding: 12px 10px; font-size: 15px; }
+}
+
+.kv-payment-window { margin: 12px 0; padding: 12px 16px; border: 1px solid var(--kv-nested-outline); border-radius: 16px; background: #f5faff; text-align: left; }
+.kv-payment-window-clock { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--kv-blue-dark); }
+.kv-payment-window-clock strong { font-size: 28px; font-variant-numeric: tabular-nums; letter-spacing: .04em; }
+.kv-payment-window p { font-size: 14px; line-height: 1.5; margin: 6px 0 0; }
+.kv-payment-window-warning { border-color: #8bb9ed; box-shadow: inset 3px 0 var(--kv-blue); }
+
+/* Exact coin payment: one primary balance, one smaller recorded-coin indicator. */
+.kv-exact-payment-amounts { margin: 18px auto; text-align: center; }
+.kv-exact-needed, .kv-exact-inserted { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.kv-exact-needed span { font-size: 18px; font-weight: 650; color: var(--kv-muted); }
+.kv-exact-needed strong { font-size: clamp(44px, 6vw, 64px); font-weight: 800; color: var(--kv-blue-dark); line-height: 1.15; overflow-wrap: anywhere; }
+.kv-exact-inserted { margin-top: 14px; }
+.kv-exact-inserted span { font-size: 16px; color: var(--kv-muted); }
+.kv-exact-inserted strong { font-size: 26px; color: var(--kv-ink); }
+.kv-confirmed-amounts-note { font-size: 14px; color: var(--kv-muted); margin-bottom: 12px; }
+.kv-checkout .kv-exact-instructions { margin: 6px auto 12px; font-size: 16px; }
+
+/* Restore the illustrated, side-by-side payment cards. */
+.kv-payment-icon-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.kv-payment-icon-card { display: flex; justify-content: center; align-items: center; gap: 14px; min-width: 0; padding: 20px 14px; border: 1px solid var(--kv-card-outline); border-radius: 20px; background: #fff; box-shadow: var(--kv-card-shadow); }
+.kv-payment-icon-card > img { flex-shrink: 0; width: 64px; height: 64px; object-fit: contain; }
+.kv-payment-icon-card .kv-exact-needed, .kv-payment-icon-card .kv-exact-inserted { align-items: flex-start; margin: 0; text-align: left; min-width: 0; }
+.kv-payment-icon-card span { font-size: 14px; font-weight: 650; }
+.kv-payment-icon-card strong { font-size: clamp(26px, 3.6vw, 40px); line-height: 1.2; }
+@media (max-width: 600px) {
+  .kv-payment-icon-cards { gap: 10px; }
+  .kv-payment-icon-card { flex-direction: column; padding: 16px 8px; gap: 8px; }
+  .kv-payment-icon-card .kv-exact-needed, .kv-payment-icon-card .kv-exact-inserted { align-items: center; text-align: center; }
+  .kv-payment-icon-card > img { width: 52px; height: 52px; }
 }

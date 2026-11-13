@@ -9,6 +9,7 @@ export function timeoutReturnSeconds(elapsed: number) {
 
 // Call only with a server response, never a client-derived timeout state.
 export function recoveryConfirmed(transaction: Transaction | null) {
+  if(transaction?.issueRecovery)return ['failed','dispensed'].includes(transaction.dispensingStatus) && transaction.issueRecovery.returnRequested && transaction.issueRecovery.machineReuseReady && !(transaction.issueRecovery.machineReviewRequired??transaction.issueRecovery.reviewRequired);
   return transaction?.dispensingStatus === "failed" && transaction.adminRecovered === true;
 }
 

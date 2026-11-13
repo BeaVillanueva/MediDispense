@@ -134,6 +134,7 @@ export function Confirmation({
   title,
   description,
   action,
+  cancelLabel = "Go back",
   onCancel,
   onConfirm,
 }: {
@@ -141,6 +142,7 @@ export function Confirmation({
   title: string;
   description: string;
   action: string;
+  cancelLabel?: string;
   onCancel: () => void;
   onConfirm: () => void;
 }) {
@@ -157,7 +159,7 @@ export function Confirmation({
           <AlertDialogDescription>{description}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel onClick={onCancel}>Go back</AlertDialogCancel>
+          <AlertDialogCancel onClick={onCancel}>{cancelLabel}</AlertDialogCancel>
           <AlertDialogAction onClick={onConfirm}>{action}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

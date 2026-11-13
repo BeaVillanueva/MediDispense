@@ -19,7 +19,7 @@ async function request<T>(
   body?: unknown
 ): Promise<T> {
   const url=`${apiBaseUrl}${path}`;
-  const operation=path.includes("/checkout")?"checkout":path.includes("/recover")?"recover":"request";
+  const operation=path.includes("/checkout")?"checkout":path.includes("/recover")?"recover":path.endsWith("/expire")?"expire":"request";
   const started=performance.now();
   const controller=new AbortController();
   let timedOut=false;let status:number|null=null;
@@ -73,6 +73,8 @@ export const kioskApi = {
     request<Transaction>(`/api/transactions/${id}`, session),
   cancel: (id: number, session: PurchaseSession) =>
     request<Transaction>(`/api/transactions/${id}/cancel`, session, {}),
+  expire: (id: number, session: PurchaseSession) =>
+    request<Transaction>(`/api/transactions/${id}/expire`, session, {}),
 };
 // Only recovery credentials are cached, never payment/stock/success state.
 export const purchaseSessionKey = `medidispense-purchase:${apiBaseUrl}`;

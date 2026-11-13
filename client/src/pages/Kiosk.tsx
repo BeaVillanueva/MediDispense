@@ -22,16 +22,17 @@ import {
   MedicineImage,
   QuantityPicker,
 } from "@/components/kiosk/KioskControls";
+import { DraftNavigation } from "@/components/kiosk/DraftNavigation";
 import { CheckoutPanel } from "@/components/kiosk/CheckoutPanel";
 import { recoveryConfirmed } from "@/lib/dispensingTimeout";
-import { medicineLabelDetails } from "@/lib/medicineInformation";
+import { medicineLabelDetails, medicineSaleUnit, medicineStockLabel } from "@/lib/medicineInformation";
 import "./kiosk.css";
 import "./kiosk-theme.css";
 
 export default function Kiosk() {
   const medicines = useKioskMedicines();
   const checkout = useKioskCheckout();
-  const [view, setView] = useState<"browse" | "details" | "review">("browse");
+  const [view, setView] = useState<"browse" | "quantity" | "review">("browse");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [purchase, setPurchase] = useState<Purchase | null>(null);
@@ -46,7 +47,7 @@ export default function Kiosk() {
     (a, b) => (a.slotNumber ?? Number.MAX_SAFE_INTEGER) - (b.slotNumber ?? Number.MAX_SAFE_INTEGER) || a.id - b.id
   );
   const selected = catalog.find(item => item.id === selectedId);
-  const reviewLabel = medicineLabelDetails(purchase?.selectedMedicine);
+  const reviewLabel = medicineLabelDetails(selected);
   const maximum = selected ? quantityLimit(selected) : 0;
   const selectedQuantity = Math.max(1, Math.min(quantity, maximum));
   const busy = checkout.busy || checking;
@@ -55,13 +56,13 @@ export default function Kiosk() {
   const browsingSavedPurchase = browseWhileUnresolved && !!transaction && ["pending", "dispensing"].includes(transaction.dispensingStatus);
   const stage = browsingSavedPurchase ? 0 : transaction
     ? checkout.paymentStatus === "SUCCESS"
-      ? 4
+      ? 5
       : transaction.paymentStatus === "successful"
-        ? 3
-        : 2
-    : view === "review"
-      ? 1
-      : 0;
+        ? 4
+        : 3
+    : view === "quantity"
+      ? 2
+      : view === "review" ? 1 : 0;
   const categories = [
     "All medicines",
     ...Array.from(new Set(catalog.map(item => item.category).filter(Boolean))),
@@ -75,9 +76,26 @@ export default function Kiosk() {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [view, stage]);
   useEffect(() => {
-    if (view === "details")
+    if (view === "quantity") {
       setQuantity(value => Math.max(1, Math.min(value, maximum)));
+      setPurchase(previous => {
+        if (!previous || maximum < 1) return previous;
+        const next = Math.max(1, Math.min(previous.quantity, maximum));
+        return next === previous.quantity ? previous : { ...previous, quantity: next, totalAmount: purchaseTotal(previous.unitPrice, next) };
+      });
+    }
   }, [maximum, view]);
+  const cancelDraft = () => {
+    setConfirmation(false);
+    // Do not clear a submitted, interrupted, recovering, or active purchase session.
+    if (transaction || busy || checkout.error) return;
+    setPurchase(null);
+    setSelectedId(null);
+    setQuantity(1);
+    setView("browse");
+    setNotice("");
+    setCategory("All medicines");
+  };
   const reset = async () => {
     if (!(await checkout.reset())) return;
     setBrowseWhileUnresolved(false);
@@ -90,11 +108,11 @@ export default function Kiosk() {
     void medicines.refetch();
   };
   useEffect(() => {
-    if ((recoveryConfirmed(transaction) || (browseWhileUnresolved && transaction?.dispensingStatus === "failed")) && !checkout.busy && !checkout.error) {
+    if ((recoveryConfirmed(transaction) || (browseWhileUnresolved && transaction?.dispensingStatus === "failed" && !transaction.issueRecovery)) && !checkout.busy && !checkout.error) {
       void reset();
     }
-  }, [transaction?.adminRecovered, transaction?.dispensingStatus, browseWhileUnresolved, checkout.busy, checkout.error]);
-  const buyNow = () => {
+  }, [transaction?.adminRecovered, transaction?.dispensingStatus, transaction?.issueRecovery?.revision, transaction?.issueRecovery?.machineReuseReady, browseWhileUnresolved, checkout.busy, checkout.error]);
+  const continueToQuantity = () => {
     if (
       !selected ||
       maximum < selectedQuantity ||
@@ -110,7 +128,7 @@ export default function Kiosk() {
       totalAmount: purchaseTotal(selected.price, selectedQuantity),
     });
     setNotice("");
-    setView("review");
+    setView("quantity");
   };
   async function proceed() {
     if (checkLock.current || busy || transaction || checkout.error || !purchase)
@@ -165,6 +183,7 @@ export default function Kiosk() {
             {[
               "Choose",
               "Review",
+              "Quantity",
               "Payment",
               "Dispense",
               "Complete",
@@ -213,7 +232,7 @@ export default function Kiosk() {
             onBrowse={() => { setBrowseWhileUnresolved(true); setView("browse"); setSelectedId(null); setPurchase(null); setQuantity(1); setCategory("All medicines"); }}
             onBack={async () => {
               if (await checkout.reset()) {
-                setView(purchase ? "review" : "browse");
+                setView(purchase ? "quantity" : "browse");
                 void medicines.refetch();
               }
             }}
@@ -235,14 +254,7 @@ export default function Kiosk() {
             )}
             {view === "browse" && (
               <>
-                <section className="kv-intro">
-                  <div>
-                    <p className="kv-eyebrow">Welcome to MediDispense</p>
-                    <h1>What do you need today?</h1>
-                    <p>
-                      Choose your medicine to get started.
-                    </p>
-                  </div>
+                <section className="kv-intro kv-selection-status" aria-label="Medicine availability">
                   {(browsingSavedPurchase || machineAwaitingRecovery || medicines.isPending || medicines.isError) && <span className="kv-inventory-note">
                     {browsingSavedPurchase ? <button className="kv-button kv-secondary" onClick={() => setBrowseWhileUnresolved(false)}>Machine needs assistance · View purchase</button> : machineAwaitingRecovery ? "Machine awaiting staff recovery" : medicines.isPending
                       ? "Checking availability…"
@@ -302,20 +314,19 @@ export default function Kiosk() {
                               src={medicine.imageUrl}
                               name={medicine.name}
                             />
-                            <span>Slot {medicine.slotNumber}</span>
                           </div>
                           <div className="kv-product-copy">
                             <p className="kv-eyebrow">{medicine.category}</p>
                             <h2>{medicine.name}</h2>
                             <div className="kv-product-price">
                               <strong>{peso(medicine.price)}</strong>
-                              <span>per unit</span>
+                              <span>/ {medicineSaleUnit(medicine)}</span>
                             </div>
                             <p
                               className={`kv-stock ${purchasable(medicine) ? "" : "kv-unavailable"}`}
                             >
                               {purchasable(medicine)
-                                ? `${medicine.stockQuantity} available`
+                                ? medicineStockLabel(medicine)
                                 : medicine.unavailableReason ?? (medicine.stockQuantity < 1 ? "Out of stock" : "Currently unavailable")}
                             </p>
                             <button
@@ -329,10 +340,9 @@ export default function Kiosk() {
                               }
                               onClick={() => {
                                 setSelectedId(medicine.id);
-                                setPurchase(null);
-                                setQuantity(1);
+                                if (selectedId !== medicine.id) { setPurchase(null); setQuantity(1); }
                                 setNotice("");
-                                setView("details");
+                                setView("review");
                               }}
                             >
                               Select <ArrowRight size={20} />
@@ -345,20 +355,10 @@ export default function Kiosk() {
               </>
             )}
 
-            {view === "details" && (
+            {view === "quantity" && (
               <>
-                <button
-                  className="kv-button kv-back"
-                  disabled={busy || !!checkout.error}
-                  onClick={() => {
-                    setPurchase(null);
-                    setView("browse");
-                  }}
-                >
-                  <ArrowLeft size={20} /> Back to medicines
-                </button>
                 {selected ? (
-                  <section className="kv-details">
+                  <section className="kv-details kv-quantity-screen" aria-label="Select quantity">
                     <div className="kv-detail-image">
                       <MedicineImage
                         key={selected.imageUrl}
@@ -368,9 +368,10 @@ export default function Kiosk() {
                     </div>
                     <div>
                       <p className="kv-eyebrow">
-                        {selected.category} · Slot {selected.slotNumber}
+                        {selected.category}
                       </p>
-                      <h1>{selected.name}</h1>
+                      <h1>Select Quantity</h1>
+                      <h2>{selected.name}</h2>
                       <div className="kv-detail-price">
                         {peso(selected.price)} <span>per unit</span>
                       </div>
@@ -386,7 +387,10 @@ export default function Kiosk() {
                           value={selectedQuantity}
                           maximum={maximum}
                           name={selected.name}
-                          onChange={setQuantity}
+                          onChange={value => {
+                            setQuantity(value);
+                            setPurchase(previous => previous ? { ...previous, quantity: value, totalAmount: purchaseTotal(previous.unitPrice, value) } : null);
+                          }}
                           disabled={
                             maximum === 0 ||
                             medicines.isError ||
@@ -403,19 +407,12 @@ export default function Kiosk() {
                           </strong>
                         </div>
                       </div>
-                      <button
-                        className="kv-button kv-primary kv-wide"
-                        disabled={
-                          maximum < selectedQuantity ||
-                          medicines.isError ||
-                          busy ||
-                          !!checkout.error
-                        }
-                        onClick={buyNow}
-                      >
-                        Add to Review <ArrowRight size={20} />
-                      </button>
+                      {changed && <div className="kv-message kv-error" role="alert">Price or availability changed. Go back to Review before paying.</div>}
+
                     </div>
+                    <DraftNavigation primaryLabel={busy ? "Checking purchase..." : "Proceed to Payment"}
+                      disabled={busy || !!checkout.error} primaryDisabled={!purchase || changed || maximum < selectedQuantity || medicines.isError}
+                      onBack={() => { setNotice(""); setView("review"); }} onContinue={() => void proceed()} onCancel={() => setConfirmation(true)} />
                   </section>
                 ) : (
                   <div className="kv-empty">
@@ -423,81 +420,36 @@ export default function Kiosk() {
                     <p>
                       Please return to the selection to choose another medicine.
                     </p>
+                    <button className="kv-button kv-secondary" disabled={busy || !!checkout.error} onClick={() => setView("browse")}><ArrowLeft size={20} /> Back to medicines</button>
                   </div>
                 )}
               </>
             )}
-            {view === "review" && purchase && (
+            {view === "review" && (
               <section className="kv-panel kv-purchase-review">
-                <h1>Review purchase</h1>
-                <section className="kv-review-information" aria-labelledby="review-information-title">
-                <h2 id="review-information-title">Medicine Information</h2>
-                <div className="kv-review-medicine">
-                  <div className="kv-medicine-thumbnail">
-                    <MedicineImage
-                      src={purchase.selectedMedicine.imageUrl}
-                      name={purchase.selectedMedicine.name}
-                    />
-                  </div>
-                  <div>
-                    <h2>{purchase.selectedMedicine.name}</h2>
-                    <dl className="kv-label-details">
-                      <div><dt>Category</dt><dd>{purchase.selectedMedicine.category || "Not specified"}</dd></div>
-                      <div><dt>Strength</dt><dd>{reviewLabel.strength || "Refer to packaging"}</dd></div>
-                      {reviewLabel.type && <div><dt>Type</dt><dd>{reviewLabel.type}</dd></div>}
-                    </dl>
-                  </div>
-                </div>
-                <dl className="kv-review-totals">
-                  <div>
-                    <dt>Unit price</dt>
-                    <dd>{peso(purchase.unitPrice)}</dd>
-                  </div>
-                  <div>
-                    <dt>Quantity</dt>
-                    <dd>{purchase.quantity}</dd>
-                  </div>
-                  <div className="kv-total">
-                    <dt>Total amount</dt>
-                    <dd>{peso(purchase.totalAmount)}</dd>
-                  </div>
-                </dl>
-                </section>
-                {changed && (
-                  <div className="kv-message kv-error" role="alert">
-                    Price or stock changed. Go back and review your selection
-                    again.
-                  </div>
-                )}
-                <div className="kv-actions">
-                  <button
-                    className="kv-button kv-secondary"
-                    disabled={busy || !!checkout.error}
-                    onClick={() => {
-                      setNotice("");
-                      setView("details");
-                    }}
-                  >
-                    Back
-                  </button>
-                  <button
-                    className="kv-button kv-primary"
-                    disabled={
-                      busy || changed || medicines.isError || !!checkout.error
-                    }
-                    onClick={() => void proceed()}
-                  >
-                    {busy ? "Checking purchase…" : "Proceed to payment"}
-                    <ArrowRight size={20} />
-                  </button>
-                </div>
-                <button
-                  className="kv-button kv-back"
-                  disabled={busy || !!checkout.error}
-                  onClick={() => setConfirmation(true)}
-                >
-                  Cancel purchase
-                </button>
+                <h1>Review Purchase</h1>
+                {selected ? <>
+                  <section className="kv-review-information" aria-label="Medicine information">
+                    <div className="kv-review-medicine">
+                      <div className="kv-medicine-thumbnail"><MedicineImage src={selected.imageUrl} name={selected.name} /></div>
+                      <div className="kv-review-medicine-details">
+                        <p className="kv-eyebrow">{selected.category}</p>
+                        <h2>{selected.name}</h2>
+                        <dl className="kv-label-details">
+                          <div><dt>Strength</dt><dd>{reviewLabel.strength || "Refer to packaging"}</dd></div>
+                          {reviewLabel.type && <div><dt>Type</dt><dd>{reviewLabel.type}</dd></div>}
+                          <div><dt>Unit price</dt><dd>{peso(selected.price)}</dd></div>
+                        </dl>
+                        <div className="kv-review-description">
+                          <h3>Description &amp; Common Uses</h3>
+                          <p>{selected.description?.trim() || "Medicine information is not available. Please check the packaging or ask a pharmacist."}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+                  <DraftNavigation primaryLabel="Continue" disabled={busy || !!checkout.error} primaryDisabled={maximum < 1 || medicines.isError}
+                    onBack={() => { setNotice(""); setView("browse"); }} onContinue={continueToQuantity} onCancel={() => setConfirmation(true)} />
+                </> : <div className="kv-empty"><p>This medicine is no longer available.</p><button className="kv-button kv-secondary" onClick={() => setView("browse")}>Back to medicines</button></div>}
               </section>
             )}
           </>
@@ -509,14 +461,12 @@ export default function Kiosk() {
       </footer>
       <Confirmation
         open={confirmation}
-        title="Cancel this purchase?"
-        description="Your selection will be cleared and you will return to the medicine selection."
-        action="Cancel purchase"
+        title="Cancel Purchase?"
+        description="Are you sure you want to cancel this purchase and return to medicine selection?"
+        action="Yes, Cancel"
+        cancelLabel="Keep Purchase"
         onCancel={() => setConfirmation(false)}
-        onConfirm={() => {
-          setConfirmation(false);
-          reset();
-        }}
+        onConfirm={cancelDraft}
       />
     </div>
   );
