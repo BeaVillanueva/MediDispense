@@ -36,11 +36,15 @@ jobs:
         run: |
           set -euo pipefail
           result_dir="$(mktemp -d "$RUNNER_TEMP/coin-native-XXXXXXXX")"
+          # Resolve runner-provided Node before the clean environment removes its PATH.
+          node_path="$(command -v node)"
+          node_path="$(readlink -f -- "$node_path")"
+          [[ "$node_path" = /* && -x "$node_path" ]]
           # Fail closed if network namespace isolation is unavailable.
           # Drop root privileges and remove inherited tokens/configuration.
           sudo unshare --net -- sudo -u "$(id -un)" -- env -i \
             PATH=/usr/bin:/bin HOME="$result_dir" LANG=C.UTF-8 \
-            node "$GITHUB_WORKSPACE/firmware/coin-review/validation/github-native-tests.mjs" \
+            "$node_path" "$GITHUB_WORKSPACE/firmware/coin-review/validation/github-native-tests.mjs" \
               "$GITHUB_WORKSPACE" "$result_dir"
         # Results are printed into the job log even when an individual case fails.
         # No artifacts, caches, secrets, services, deployments or firmware uploads.
