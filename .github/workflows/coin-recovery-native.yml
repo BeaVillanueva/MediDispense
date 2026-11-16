@@ -1,0 +1,46 @@
+name: Coin recovery native safety tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coin-recovery-native-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  native-fault-tests:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out reviewed test sources only
+        # actions/checkout v4.2.2, pinned to an immutable commit.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /esp32/CAPSTONE_MEDICINE_VENDO/CoinPaymentCore.h
+            /esp32/tests/coin-payment-core.c
+            /firmware/coin-review/CoinEventReviewCore.h
+            /firmware/coin-review/review-core.test.cpp
+            /firmware/coin-review/validation/github-native-tests.mjs
+
+      - name: Run synthetic fault tests without network access
+        shell: bash
+        run: |
+          set -euo pipefail
+          result_dir="$(mktemp -d "$RUNNER_TEMP/coin-native-XXXXXXXX")"
+          # Fail closed if network namespace isolation is unavailable.
+          # Drop root privileges and remove inherited tokens/configuration.
+          sudo unshare --net -- sudo -u "$(id -un)" -- env -i \
+            PATH=/usr/bin:/bin HOME="$result_dir" LANG=C.UTF-8 \
+            node "$GITHUB_WORKSPACE/firmware/coin-review/validation/github-native-tests.mjs" \
+              "$GITHUB_WORKSPACE" "$result_dir"
+        # Results are printed into the job log even when an individual case fails.
+        # No artifacts, caches, secrets, services, deployments or firmware uploads.
