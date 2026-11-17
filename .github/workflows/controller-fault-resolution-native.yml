@@ -1,0 +1,94 @@
+name: Controller fault resolution - Milestone 1
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: controller-fault-resolution-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  synthetic-validation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout reviewed synthetic sources
+        # actions/checkout v4.2.2; immutable action revision.
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          submodules: false
+          lfs: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /firmware/controller-fault-resolution/ControllerFaultResolutionCore.h
+            /firmware/controller-fault-resolution/core.test.cpp
+            /firmware/controller-fault-resolution/run-isolated-linux.sh
+
+      - name: Record provenance and run only inside isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          # No installation, downloads, sudo, or unsandboxed fallback.
+          test -x /usr/bin/bwrap
+          test -x /usr/bin/g++
+          test -d /lib64
+
+          printf 'Commit: %s\n' "$GITHUB_SHA"
+          printf 'Runner OS: %s; architecture: %s\n' "$RUNNER_OS" "$RUNNER_ARCH"
+          printf 'Image OS: %s; version: %s\n' "${ImageOS:-unavailable}" "${ImageVersion:-unavailable}"
+          /usr/bin/g++ --version
+          /usr/bin/bwrap --version
+
+          source_dir="$GITHUB_WORKSPACE/firmware/controller-fault-resolution"
+          for name in ControllerFaultResolutionCore.h core.test.cpp run-isolated-linux.sh; do
+            test -f "$source_dir/$name"
+            test ! -L "$source_dir/$name"
+          done
+          sha256sum \
+            "$source_dir/ControllerFaultResolutionCore.h" \
+            "$source_dir/core.test.cpp" \
+            "$source_dir/run-isolated-linux.sh"
+
+          # Only three files are exposed to the sandbox, not the checkout or .git.
+          # /usr and libraries are read-only runner toolchains, not application data.
+          /usr/bin/bwrap \
+            --unshare-all \
+            --cap-drop ALL \
+            --new-session \
+            --die-with-parent \
+            --clearenv \
+            --ro-bind /usr /usr \
+            --ro-bind /lib /lib \
+            --ro-bind /lib64 /lib64 \
+            --symlink usr/bin /bin \
+            --proc /proc \
+            --dev /dev \
+            --tmpfs /tmp \
+            --dir /src \
+            --ro-bind "$source_dir/ControllerFaultResolutionCore.h" /src/ControllerFaultResolutionCore.h \
+            --ro-bind "$source_dir/core.test.cpp" /src/core.test.cpp \
+            --ro-bind "$source_dir/run-isolated-linux.sh" /src/run-isolated-linux.sh \
+            --setenv PATH /usr/bin:/bin \
+            --setenv HOME /tmp \
+            --setenv TMPDIR /tmp \
+            --setenv LANG C \
+            --chdir /src \
+            /bin/bash --noprofile --norc -c '
+              set -euo pipefail
+              # An isolated network namespace must expose no non-loopback interface.
+              awk -F: "NR>2 { gsub(/ /,\"\",\$1); if (\$1!=\"lo\") exit 1 }" /proc/net/dev
+              test ! -e /dev/ttyUSB0
+              test ! -e /dev/ttyACM0
+              test ! -e /etc
+              test ! -e /home
+              echo "Isolation established; synthetic native and ASan/UBSan runs follow."
+              export CFR_APPROVED_ISOLATED_TEST_ENV=yes
+              exec /bin/bash --noprofile --norc /src/run-isolated-linux.sh
+            '
+        # No secrets, service containers, caches, artifacts, deployments or hardware.
+        # Missing tooling/namespace support or any test error fails the job.
