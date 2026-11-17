@@ -16,6 +16,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out reviewed test sources only
+        id: sources
         # actions/checkout v4.2.2, pinned to an immutable commit.
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -30,6 +31,9 @@ jobs:
             /firmware/coin-review/CoinEventReviewCore.h
             /firmware/coin-review/review-core.test.cpp
             /firmware/coin-review/validation/github-native-tests.mjs
+            /firmware/lab-durability/phase2/LabState.h
+            /firmware/lab-durability/phase2/state.test.cpp
+            /firmware/lab-durability/phase2/native-tests.mjs
 
       - name: Run synthetic fault tests without network access
         shell: bash
@@ -48,3 +52,19 @@ jobs:
               "$GITHUB_WORKSPACE" "$result_dir"
         # Results are printed into the job log even when an individual case fails.
         # No artifacts, caches, secrets, services, deployments or firmware uploads.
+
+      - name: Run Phase 2 lab fault tests without network access
+        # Do not hide the lab suite if an older portable-core suite fails.
+        if: ${{ !cancelled() && steps.sources.outcome == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result_dir="$(mktemp -d "$RUNNER_TEMP/lab-phase2-XXXXXXXX")"
+          node_path="$(command -v node)"
+          node_path="$(readlink -f -- "$node_path")"
+          [[ "$node_path" = /* && -x "$node_path" ]]
+          # Same fail-closed namespace and clean environment as the reviewed core tests.
+          sudo unshare --net -- sudo -u "$(id -un)" -- env -i \
+            PATH=/usr/bin:/bin HOME="$result_dir" LANG=C.UTF-8 \
+            "$node_path" "$GITHUB_WORKSPACE/firmware/lab-durability/phase2/native-tests.mjs" \
+              "$GITHUB_WORKSPACE" "$result_dir"
