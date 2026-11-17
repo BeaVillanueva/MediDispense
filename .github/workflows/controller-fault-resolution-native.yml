@@ -32,18 +32,54 @@ jobs:
       - name: Record provenance and run only inside isolation
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          stage='runner metadata'
+          trap 'rc=$?; printf "::error::Stage=%s line=%s exit=%s\n" "$stage" "$LINENO" "$rc"; exit "$rc"' ERR
+          printf 'STAGE: %s\n' "$stage"
           # No installation, downloads, sudo, or unsandboxed fallback.
-          test -x /usr/bin/bwrap
-          test -x /usr/bin/g++
-          test -d /lib64
 
           printf 'Commit: %s\n' "$GITHUB_SHA"
           printf 'Runner OS: %s; architecture: %s\n' "$RUNNER_OS" "$RUNNER_ARCH"
           printf 'Image OS: %s; version: %s\n' "${ImageOS:-unavailable}" "${ImageVersion:-unavailable}"
+          stage='required executables and directories'
+          printf 'STAGE: %s\n' "$stage"
+          missing=0
+          for executable in /usr/bin/bwrap /usr/bin/g++; do
+            if [[ -x "$executable" ]]; then
+              printf 'PASS executable: %s\n' "$executable"
+            else
+              printf '::error::Missing required executable: %s\n' "$executable"
+              missing=1
+            fi
+          done
+          if [[ -d /lib64 ]]; then
+            echo 'PASS directory: /lib64'
+          else
+            echo '::error::Missing required directory: /lib64'
+            missing=1
+          fi
+          if (( missing != 0 )); then
+            echo '::error::Prerequisites failed; sandbox and tests NOT EXECUTED.'
+            exit 1
+          fi
+
+          stage='tool versions'
+          printf 'STAGE: %s\n' "$stage"
           /usr/bin/g++ --version
           /usr/bin/bwrap --version
 
+          stage='read-only namespace policy diagnostics'
+          printf 'STAGE: %s\n' "$stage"
+          for policy in kernel.unprivileged_userns_clone kernel.apparmor_restrict_unprivileged_userns user.max_user_namespaces; do
+            if value=$(/usr/sbin/sysctl -n "$policy" 2>/dev/null); then
+              printf '%s=%s\n' "$policy" "$value"
+            else
+              printf '%s=unavailable\n' "$policy"
+            fi
+          done
+
+          stage='source verification'
+          printf 'STAGE: %s\n' "$stage"
           source_dir="$GITHUB_WORKSPACE/firmware/controller-fault-resolution"
           for name in ControllerFaultResolutionCore.h core.test.cpp run-isolated-linux.sh; do
             test -f "$source_dir/$name"
@@ -56,6 +92,8 @@ jobs:
 
           # Only three files are exposed to the sandbox, not the checkout or .git.
           # /usr and libraries are read-only runner toolchains, not application data.
+          stage='Bubblewrap namespace/mount setup'
+          printf 'STAGE: %s\n' "$stage"
           /usr/bin/bwrap \
             --unshare-all \
             --cap-drop ALL \
@@ -79,7 +117,10 @@ jobs:
             --setenv LANG C \
             --chdir /src \
             /bin/bash --noprofile --norc -c '
-              set -euo pipefail
+              set -Eeuo pipefail
+              stage="sandbox assertions"
+              trap "rc=\$?; printf \"::error::Sandbox stage=%s line=%s exit=%s\\n\" \"\$stage\" \"\$LINENO\" \"\$rc\"; exit \"\$rc\"" ERR
+              printf "STAGE: %s\\n" "$stage"
               # An isolated network namespace must expose no non-loopback interface.
               awk -F: "NR>2 { gsub(/ /,\"\",\$1); if (\$1!=\"lo\") exit 1 }" /proc/net/dev
               test ! -e /dev/ttyUSB0
@@ -88,7 +129,9 @@ jobs:
               test ! -e /home
               echo "Isolation established; synthetic native and ASan/UBSan runs follow."
               export CFR_APPROVED_ISOLATED_TEST_ENV=yes
-              exec /bin/bash --noprofile --norc /src/run-isolated-linux.sh
+              stage="isolated native test execution"
+              printf "STAGE: %s\n" "$stage"
+              /bin/bash --noprofile --norc /src/run-isolated-linux.sh
             '
         # No secrets, service containers, caches, artifacts, deployments or hardware.
         # Missing tooling/namespace support or any test error fails the job.
