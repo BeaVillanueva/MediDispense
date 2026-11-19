@@ -7,11 +7,12 @@ $config = [
     'app_url' => getenv('APP_URL') ?: 'http://localhost:5173',
     'cors_origins' => array_filter(array_map('trim', explode(',', getenv('CORS_ORIGINS') ?: 'http://localhost:5173,http://localhost:3000,http://localhost:3001'))),
     'database' => [
-        'host' => getenv('DB_HOST') ?: '127.0.0.1',
-        'port' => getenv('DB_PORT') ?: '3306',
-        'name' => getenv('DB_NAME') ?: 'medidispense',
-        'user' => getenv('DB_USER') ?: 'root',
-        'password' => getenv('DB_PASSWORD') ?: '',
+        // Trimmed: values pasted into hosting dashboards often carry stray spaces.
+        'host' => trim((string)getenv('DB_HOST')) ?: '127.0.0.1',
+        'port' => trim((string)getenv('DB_PORT')) ?: '3306',
+        'name' => trim((string)getenv('DB_NAME')) ?: 'medidispense',
+        'user' => trim((string)getenv('DB_USER')) ?: 'root',
+        'password' => trim((string)getenv('DB_PASSWORD')),
     ],
     'firebase' => [
         'web_api_key' => getenv('FIREBASE_WEB_API_KEY') ?: '',
