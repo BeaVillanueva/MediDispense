@@ -16,8 +16,6 @@ export function RestockDialog({
   onChanged: () => void;
 }) {
   const [quantity, setQuantity] = useState("");
-  const [reason, setReason] = useState("Restock");
-  const [checks, setChecks] = useState<Record<string, boolean>>({});
   const [key] = useState(inventoryRequestKey);
   const [localOp, setLocalOp] = useState<SlotMaintenance | null>(null);
   const lock = useRef(false);
@@ -34,9 +32,8 @@ export function RestockDialog({
   const validQuantity =
     /^[1-9][0-9]*$/.test(quantity) &&
     amount <= remaining;
-  const valid = validQuantity &&
-    reason.trim().length >= 5 &&
-    ["loaded", "sameExpiry"].every(k => checks[k]);
+  // Pressing Add Stock is the confirmation that these tablets (same expiry) were loaded.
+  const valid = validQuantity;
   const refresh = () => {
     void utils.invalidate();
     onChanged();
@@ -60,7 +57,7 @@ export function RestockDialog({
       await restock.mutateAsync({
         medicineId: medicine.id,
         quantity: amount,
-        reason: reason.trim(),
+        reason: "Restock",
         requestKey: active.request_key,
         physicallyLoaded: true,
         sameExpiry: true,
@@ -75,10 +72,7 @@ export function RestockDialog({
       lock.current = false;
     }
   };
-  const changeQuantity = (value: string) => {
-    setQuantity(value);
-    setChecks(previous => ({ ...previous, loaded: false }));
-  };
+  const changeQuantity = (value: string) => setQuantity(value);
   return (
     <div className="modal-backdrop">
       <form
@@ -141,17 +135,7 @@ export function RestockDialog({
         <small id="restock-quantity-help" className={quantity!==""&&!validQuantity?"restock-error":"add-stock-help"}>
           {remaining===0?"This slot is full.":quantity!==""&&!validQuantity?`Enter a whole number from 1 to ${remaining}.`:`You can add up to ${remaining} tablets.`}
         </small>
-        <>
-            <p className="add-stock-safety"><ShieldCheck size={18} aria-hidden="true"/><span>Load the tablets, tick both boxes, then press Add Stock. The system checks that no purchase is in progress before recording.</span></p>
-            <fieldset className="add-stock-loaded" disabled={pending}>
-              <legend>Load and confirm</legend>
-              <p>Add {validQuantity?amount:"the selected"} tablets to Slot {medicine.slotNumber}. Use the same expiry: {medicine.expiryDate}.</p>
-              <div className="slot-confirmations">
-                {[["loaded","I loaded this number of tablets into this slot."],["sameExpiry","The added tablets have the expiry date shown above."]].map(([key,label])=><label key={key}><input type="checkbox" checked={!!checks[key]} onChange={e=>setChecks({...checks,[key]:e.target.checked})}/><span>{label}</span></label>)}
-              </div>
-            </fieldset>
-            <details className="add-stock-notes"><summary>Stock note</summary><label>Reason<input required minLength={5} maxLength={200} value={reason} onChange={e=>setReason(e.target.value)}/></label></details>
-        </>
+        <p className="add-stock-safety"><ShieldCheck size={18} aria-hidden="true"/><span>Load the tablets into Slot {medicine.slotNumber} (expiry {medicine.expiryDate}), then press Add Stock.</span></p>
         {(begin.error || restock.error) && (
           <p role="alert">{restock.error?.message ?? begin.error?.message}</p>
         )}

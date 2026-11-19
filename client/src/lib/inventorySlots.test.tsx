@@ -78,7 +78,8 @@ function renderRestock(){h.state=0;h.ref=0;return RestockDialog({medicine:restoc
 function enterRestock(value:string){all(renderRestock(),n=>n.props?.id==='restock-quantity')[0].props.onChange({target:{value}});return renderRestock();}
 function submitRestock(tree:any){all(tree,n=>n.type==='form')[0].props.onSubmit({preventDefault:vi.fn()});}
 const flush=()=>new Promise(resolve=>setTimeout(resolve,0));
-function confirmLoaded(tree:any){for(const index of [0,1]){all(tree,n=>n.type==='input'&&n.props.type==='checkbox')[index].props.onChange({target:{checked:true}});tree=renderRestock();}return tree;}
+// Add Stock has no confirmation boxes any more; kept as a no-op for readability.
+function confirmLoaded(tree:any){return tree;}
 function all(node: any, predicate: (n: any) => boolean): any[] {
   if (!node || typeof node !== "object") return [];
   if (Array.isArray(node)) return node.flatMap(n => all(n, predicate));
@@ -139,14 +140,11 @@ it('previews the total, then runs the pre-check and records the stock exactly on
 });
 it('reuses an already started pre-check instead of starting another operation',async()=>{
   h.data.operation={request_key:'c'.repeat(32),action:'restock',status:'active',old_medicine_id:1,slot_number:1};
-  let tree=enterRestock('2');submitRestock(tree);await flush();
-  expect(h.begin).not.toHaveBeenCalled();expect(h.complete).not.toHaveBeenCalled();
-  // No isolation checkboxes; only the two loading confirmations, unchecked.
-  expect(all(tree,n=>n.type==='fieldset')[0].props.disabled).toBe(false);
-  const boxes=all(tree,n=>n.type==='input'&&n.props.type==='checkbox');
-  expect(boxes).toHaveLength(2);expect(boxes.every(n=>!n.props.checked)).toBe(true);
-  tree=confirmLoaded(tree);submitRestock(tree);await flush();
-  expect(h.begin).not.toHaveBeenCalled();expect(h.complete.mock.calls[0][0]).toMatchObject({requestKey:'c'.repeat(32),quantity:2});
+  const tree=enterRestock('2');
+  expect(all(tree,n=>n.type==='input'&&n.props.type==='checkbox')).toHaveLength(0);
+  submitRestock(tree);await flush();
+  expect(h.begin).not.toHaveBeenCalled();expect(h.complete).toHaveBeenCalledOnce();
+  expect(h.complete.mock.calls[0][0]).toMatchObject({requestKey:'c'.repeat(32),quantity:2,physicallyLoaded:true,sameExpiry:true});
 });
 it("checks backend safety before showing the physical stock form", () => {
   let tree = render();
@@ -224,13 +222,13 @@ it('removes duplicate slot cards while retaining the record-triggered maintenanc
   expect(all(tree,n=>n.type==='h2'&&n.props.children==='Three slots, one medicine each')).toHaveLength(0);
   expect(all(tree,n=>n.type==='form')).toHaveLength(1);
 });
-it("never assumes the loaded quantity: nothing starts until both loading confirmations are ticked", async () => {
-  let tree=enterRestock('2');
-  expect(all(tree,n=>n.type==='button'&&n.props.children==='Add Stock')[0].props.disabled).toBe(true);
+it("records directly from the quantity with no confirmation boxes", async () => {
+  const tree=enterRestock('2');
+  expect(all(tree,n=>n.type==='input'&&n.props.type==='checkbox')).toHaveLength(0);
+  expect(all(tree,n=>n.type==='button'&&n.props.children==='Add Stock')[0].props.disabled).toBe(false);
   submitRestock(tree);await flush();
-  expect(h.begin).not.toHaveBeenCalled();expect(h.complete).not.toHaveBeenCalled();
-  expect(all(tree,n=>n.type==='input'&&n.props.type==='checkbox').every(n=>n.props.checked!==true)).toBe(true);
-  expect(all(tree,n=>n.type==='input'&&n.props.inputMode==='numeric')[0].props.value).toBe('2');
+  expect(h.begin).toHaveBeenCalledOnce();expect(h.complete).toHaveBeenCalledOnce();
+  expect(h.complete.mock.calls[0][0]).toMatchObject({quantity:2,reason:'Restock'});
 });
 it("keeps the stock stepper within capacity and does not submit while changing quantity", () => {
   let tree=renderRestock();
@@ -254,18 +252,11 @@ it("retains invalid quantity validation rather than letting the stepper submit a
   submitRestock(tree);
   expect(h.begin).not.toHaveBeenCalled();expect(h.complete).not.toHaveBeenCalled();
 });
-it("requires the loaded quantity to be reconfirmed when it changes through the stepper", () => {
-  h.data.operation={request_key:'c'.repeat(32),action:'restock',status:'active',old_medicine_id:1,slot_number:1};
+it("records the latest quantity after it is changed through the stepper", async () => {
   let tree=enterRestock('2');
-  for(const key of ['loaded','sameExpiry']){
-    // Only the physical loading confirmations remain.
-    const index=['loaded','sameExpiry'].indexOf(key);
-    all(tree,n=>n.type==='input'&&n.props.type==='checkbox')[index].props.onChange({target:{checked:true}});
-    tree=renderRestock();
-  }
-  expect(all(tree,n=>n.type==='button'&&n.props.children==='Add Stock')[0].props.disabled).toBe(false);
   all(tree,n=>n.type==='button'&&n.props['aria-label']==='Increase tablets to add')[0].props.onClick();tree=renderRestock();
-  expect(all(tree,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.checked).toBe(false);
-  expect(all(tree,n=>n.type==='button'&&n.props.children==='Add Stock')[0].props.disabled).toBe(true);
+  expect(all(tree,n=>n.props?.id==='restock-quantity')[0].props.value).toBe('3');
   expect(h.complete).not.toHaveBeenCalled();
+  submitRestock(tree);await flush();
+  expect(h.complete.mock.calls[0][0]).toMatchObject({quantity:3});
 });
