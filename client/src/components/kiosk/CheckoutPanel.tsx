@@ -5,10 +5,8 @@ import { peso, remainingAmount, SUCCESS_RESET_SECONDS } from "@/lib/kioskPurchas
 import { DevelopmentControls } from "./DevelopmentControls";
 import { CoinPaymentIllustration } from "./CoinPaymentIllustration";
 import type { Medicine } from "@shared/medidispense";
-import { KioskReceiptDialog } from './KioskReceiptDialog';
 import { completedReturnMessage } from "@/lib/completedReturn";
-import { canViewEReceipt, canReturnAfterReceiptDone } from '@/lib/transactionReceipt';
-import { useKioskReceipt } from '@/hooks/useKioskReceipt';
+import { canReturnAfterReceiptDone } from '@/lib/transactionReceipt';
 import { canShowUsageGuide, canReturnAfterDispensing } from "@/lib/medicineInformation";
 import { dispensingConfirmationTimedOut, timeoutReturnSeconds, recoveryConfirmed, dispensingRecoveryMessage } from "@/lib/dispensingTimeout";
 import { usePaymentWindow } from "@/hooks/usePaymentWindow";
@@ -28,9 +26,6 @@ export function CheckoutPanel({
   medicine?: Medicine;
 }) {
   const { transaction, paymentStatus: status } = checkout;
-  const receiptEligible=!!transaction && !checkout.preview && !checkout.error && status==='SUCCESS' && canViewEReceipt(transaction);
-  const receipt=useKioskReceipt(receiptEligible,transaction?.id);
-  const receiptFinished=useRef<string|null>(null);
   const safeCompletedReturn=checkout.preview === true || canReturnAfterDispensing(transaction);
   const insertedAmount = transaction?.amountPaid ?? 0;
   const paymentWindow = usePaymentWindow(checkout.preview ? null : transaction);
@@ -76,15 +71,8 @@ export function CheckoutPanel({
     if (timedOut && homeSeconds === 0) browse.current();
   }, [timedOut, homeSeconds]);
   finish.current = onFinish;
-  // Done (not idle expiry) on a verified receipt returns to Choose Medicine even if handoff diagnostics are stale.
-  const receiptDoneReturn=receipt.finished&&!receipt.expired&&canReturnAfterReceiptDone(transaction);
-  useEffect(()=>{
-    if(!receiptEligible||!receipt.finished||!(safeCompletedReturn||receiptDoneReturn)||checkout.busy||checkout.error||receiptFinished.current===transaction?.id)return;
-    receiptFinished.current=transaction!.id;
-    finish.current(safeCompletedReturn?undefined:{receiptDone:true});
-  },[receiptEligible,receipt.finished,safeCompletedReturn,receiptDoneReturn,checkout.busy,checkout.error,transaction?.id]);
   useEffect(() => {
-    if (status !== "SUCCESS" || !safeCompletedReturn || receiptEligible || checkout.busy || checkout.error) return;
+    if (status !== "SUCCESS" || !safeCompletedReturn || checkout.busy || checkout.error) return;
     const deadline = Date.now() + SUCCESS_RESET_SECONDS * 1000;
     const tick = () => {
       const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
@@ -94,7 +82,7 @@ export function CheckoutPanel({
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [status, safeCompletedReturn,receiptEligible,checkout.busy,checkout.error]);
+  }, [status, safeCompletedReturn,checkout.busy,checkout.error]);
   if (!transaction) return null;
   const item = transaction.items[0];
   const complete = status === "SUCCESS" && canShowUsageGuide(transaction);
@@ -283,14 +271,13 @@ export function CheckoutPanel({
       </p>
       {complete && (
         <>
-          {receiptEligible && <>
-            <button className={`kv-button ${receipt.requested?'kv-secondary':'kv-primary'} kv-wide`} disabled={checkout.busy||!!checkout.error} onClick={receipt.show}>{receipt.requested?'View E-Receipt':'Okay'}</button>
-            <KioskReceiptDialog transaction={transaction} open={receipt.open} seconds={receipt.seconds} held={receipt.held} onClose={receipt.close}/>
-          </>}
-          {safeCompletedReturn ? (!receiptEligible||receipt.requested)&&<>
+          {safeCompletedReturn ? <>
             <button className="kv-button kv-primary kv-wide" disabled={checkout.busy||!!checkout.error} onClick={()=>onFinish()}>Return to Choose Medicine <ArrowRight size={22} /></button>
-            {!receiptEligible&&<p className="kv-reset-note">Returning to medicines in {seconds} seconds.</p>}
-          </> : <div className="kv-message" role="status"><p>{completedReturnMessage(transaction)}</p><button className="kv-button kv-secondary" disabled={checkout.busy} onClick={()=>void checkout.recover(true)}>{checkout.busy?"Checking status...":"Check Status"}</button></div>}
+            <p className="kv-reset-note">Returning to medicines in {seconds} seconds.</p>
+          </> : <div className="kv-message" role="status"><p>{completedReturnMessage(transaction)}</p><button className="kv-button kv-secondary" disabled={checkout.busy} onClick={()=>void checkout.recover(true)}>{checkout.busy?"Checking status...":"Check Status"}</button>
+            {/* A sensor-verified delivery may still finish when only handoff diagnostics are stale; reset() re-validates this. */}
+            {!checkout.preview&&canReturnAfterReceiptDone(transaction)&&<button className="kv-button kv-primary" disabled={checkout.busy||!!checkout.error} onClick={()=>onFinish({receiptDone:true})}>Done</button>}
+          </div>}
         </>
       )}
       {checkout.canGoBack && !paymentWindow?.elapsed && !safelyExpired && (
