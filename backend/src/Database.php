@@ -24,6 +24,12 @@ final class Database
         if (preg_match('/^[+-](0\d|1[0-4]):[0-5]\d$/', $timeZone) === 1) {
             $connection->exec("SET time_zone = '{$timeZone}'");
         }
+        // The app was built and tested on MariaDB's non-strict mode. Hosted MySQL 8
+        // defaults to STRICT + ONLY_FULL_GROUP_BY, which changes query behaviour.
+        $sqlMode = getenv('DB_SQL_MODE') ?: 'NO_ZERO_IN_DATE,NO_ZERO_DATE,NO_ENGINE_SUBSTITUTION';
+        if (preg_match('/^[A-Z_]+(,[A-Z_]+)*$/', $sqlMode) === 1) {
+            $connection->exec("SET SESSION sql_mode = '{$sqlMode}'");
+        }
         return self::$connection = $connection;
     }
 }
