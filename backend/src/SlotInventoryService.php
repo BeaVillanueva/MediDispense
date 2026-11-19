@@ -31,7 +31,7 @@ final class SlotInventoryService {
             $review=$this->q("SELECT metadata FROM activity_logs WHERE action='admin_dispense_issue_reviewed' AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.transaction_id'))=? ORDER BY id DESC LIMIT 1",[(string)$failure['transaction_id']])->fetchColumn();
             $v=$review?json_decode($review,true):null;
             $legacy=$this->q("SELECT id FROM activity_logs WHERE action='dispense_stock_reconciled' AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.transaction_id'))=? LIMIT 1",[(string)$failure['transaction_id']])->fetchColumn();
-            if(!$legacy&&(!$v||empty($v['stockVerified'])||empty($v['inspectionComplete'])||empty($v['firebaseRetired'])||empty($v['motorStopped'])||empty($v['controllerDisconnected'])))throw new KioskError('DISPENSING_REVIEW','A previous delivery for this slot still needs physical inspection and stock reconciliation.');
+            if(!$legacy&&(!$v||empty($v['stockVerified'])||empty($v['inspectionComplete'])||empty($v['firebaseRetired'])||empty($v['motorStopped'])||empty($v['controllerDisconnected'])))throw new KioskError('DISPENSING_REVIEW','Transaction #'.(int)$failure['transaction_id'].' had a failed delivery from this slot that still needs its delivery check. Open Transactions, select #'.(int)$failure['transaction_id'].', complete Check Medicine Delivery, then try again.',409,['transaction_id'=>(int)$failure['transaction_id']]);
         }
         $reports=(new CoinPaymentDiagnostics($this->db,$this->machineCode))->activeReports();
         if(count($reports)!==1||($fresh&&!$reports[0]['fresh']))throw new KioskError('CONTROLLER_UNVERIFIED','Get a fresh connection check from the installed controller before starting maintenance.');
