@@ -120,12 +120,15 @@ it('previews the total and starts only one guarded operation, without recording 
   submitRestock(tree);submitRestock(tree);
   expect(h.begin).toHaveBeenCalledOnce();expect(h.complete).not.toHaveBeenCalled();
 });
-it('resumes a saved pause without prechecking physical confirmations or starting another operation',()=>{
+it('resumes a saved pause without prechecking loading confirmations or starting another operation',()=>{
   h.data.operation={request_key:'c'.repeat(32),action:'restock',status:'active',old_medicine_id:1,slot_number:1};
   const tree=enterRestock('2');submitRestock(tree);
   expect(h.begin).not.toHaveBeenCalled();expect(h.complete).not.toHaveBeenCalled();
-  expect(all(tree,n=>n.type==='fieldset')[0].props.disabled).toBe(true);
-  expect(all(tree,n=>n.type==='input'&&n.props.type==='checkbox').every(n=>!n.props.checked)).toBe(true);
+  // Isolation checkboxes were removed; only the two loading confirmations remain, unchecked.
+  expect(all(tree,n=>n.type==='fieldset')[0].props.disabled).toBe(false);
+  const boxes=all(tree,n=>n.type==='input'&&n.props.type==='checkbox');
+  expect(boxes).toHaveLength(2);expect(boxes.every(n=>!n.props.checked)).toBe(true);
+  expect(all(tree,n=>n.type==='button'&&n.props.children==='Confirm added stock')[0].props.disabled).toBe(true);
 });
 it("checks backend safety before showing the physical stock form", () => {
   let tree = render();
@@ -283,15 +286,15 @@ it("retains invalid quantity validation rather than letting the stepper submit a
 it("requires the loaded quantity to be reconfirmed when it changes through the stepper", () => {
   h.data.operation={request_key:'c'.repeat(32),action:'restock',status:'active',old_medicine_id:1,slot_number:1};
   let tree=enterRestock('2');
-  for(const key of ['poweredOff','stopped','coins','loaded','sameExpiry']){
-    // Checkbox order follows the existing isolation and physical loading confirmations.
-    const index=['poweredOff','stopped','coins','loaded','sameExpiry'].indexOf(key);
+  for(const key of ['loaded','sameExpiry']){
+    // Only the physical loading confirmations remain.
+    const index=['loaded','sameExpiry'].indexOf(key);
     all(tree,n=>n.type==='input'&&n.props.type==='checkbox')[index].props.onChange({target:{checked:true}});
     tree=renderRestock();
   }
   expect(all(tree,n=>n.type==='button'&&n.props.children==='Confirm added stock')[0].props.disabled).toBe(false);
   all(tree,n=>n.type==='button'&&n.props['aria-label']==='Increase tablets to add')[0].props.onClick();tree=renderRestock();
-  expect(all(tree,n=>n.type==='input'&&n.props.type==='checkbox')[3].props.checked).toBe(false);
+  expect(all(tree,n=>n.type==='input'&&n.props.type==='checkbox')[0].props.checked).toBe(false);
   expect(all(tree,n=>n.type==='button'&&n.props.children==='Confirm added stock')[0].props.disabled).toBe(true);
   expect(h.complete).not.toHaveBeenCalled();
 });
