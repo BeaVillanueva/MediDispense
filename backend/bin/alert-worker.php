@@ -24,8 +24,12 @@ do {
                 exit;
             }
             if ($watch && !(int)$db->query("SELECT GET_LOCK('medidispense_alert_daemon',0)")->fetchColumn()) {
-                fwrite(STDERR,"Another alert daemon already owns the worker lease. Exiting without sending.\n");
-                exit(1);
+                // During a rolling redeploy the previous instance still holds the lease.
+                // Wait for it instead of exiting, so the host does not crash-loop this service.
+                // Only the lease holder ever scans or sends, so this stays single-sender.
+                fwrite(STDERR,"Another alert daemon owns the worker lease. Waiting for it to be released; nothing is sent meanwhile.\n");
+                while (!(int)$db->query("SELECT GET_LOCK('medidispense_alert_daemon',30)")->fetchColumn()) {}
+                fwrite(STDERR,"Alert worker lease acquired.\n");
             }
         }
         $alerts->scan();

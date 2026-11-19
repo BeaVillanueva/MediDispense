@@ -10,7 +10,12 @@ $initialize=in_array('--initialize',$argv,true);
 do {
     try {
         $db=Database::connect($config);
-        if(!(int)$db->query("SELECT GET_LOCK('medidispense_reference_sync',0)")->fetchColumn())exit(0);
+        if(!(int)$db->query("SELECT GET_LOCK('medidispense_reference_sync',0)")->fetchColumn()){
+            // Another instance (e.g. the previous one during a redeploy) holds the lease.
+            // In watch mode keep waiting instead of exiting, so the service stays alive.
+            if(!$watch)exit(0);
+            sleep(5);continue;
+        }
         $sync=new TransactionReferenceSync($db,new FirebaseRealtimeDatabase((string)$config['firebase']['database_url']));
         if($initialize){$sync->initialize();echo "New-record baselines initialized; no Firebase writes or historical backfill.\n";exit;}
         $results=$sync->run();if($results)echo json_encode($results).PHP_EOL;
