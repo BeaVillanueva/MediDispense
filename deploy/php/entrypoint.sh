@@ -19,7 +19,10 @@ echo "Listen ${PORT}" > /etc/apache2/ports.conf
 php -r '
 $dir = $argv[1];
 $bool = static fn(string $name): bool => in_array(strtolower((string)getenv($name)), ["1","true","yes","on"], true);
-$smtp = ["enabled" => $bool("SMTP_ENABLED"), "username" => (string)getenv("SMTP_USERNAME"), "password" => (string)getenv("SMTP_PASSWORD")];
+$smtp = ["enabled" => $bool("SMTP_ENABLED"), "username" => trim((string)getenv("SMTP_USERNAME")), "password" => trim((string)getenv("SMTP_PASSWORD"))];
+// Optional relay override (Railway Hobby blocks 25/465/587; e.g. a port-2525 relay).
+foreach (["host" => "SMTP_HOST", "encryption" => "SMTP_ENCRYPTION", "from_email" => "SMTP_FROM_EMAIL"] as $key => $name) { $v = trim((string)getenv($name)); if ($v !== "") $smtp[$key] = $v; }
+$port = trim((string)getenv("SMTP_PORT")); if ($port !== "") $smtp["port"] = (int)$port;
 file_put_contents("$dir/smtp.local.php", "<?php\nreturn " . var_export($smtp, true) . ";\n");
 $ids = array_values(array_filter(array_map("intval", preg_split("/[\\s,]+/", (string)getenv("DEMO_PROTECTED_TRANSACTION_IDS"), -1, PREG_SPLIT_NO_EMPTY)), fn(int $id) => $id > 0));
 $demo = [
