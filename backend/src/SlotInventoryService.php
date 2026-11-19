@@ -133,7 +133,9 @@ final class SlotInventoryService {
             if($retry){$v=json_decode($retry,true);if((int)$v['medicine_id']!==$id||(int)$v['change']!==$delta||$v['reason']!==trim((string)($b['reason']??'')))throw new KioskError('EVENT_CONFLICT','This restock key belongs to a different adjustment.');return ['medicine_id'=>$id,'previous_quantity'=>$v['previous'],'new_quantity'=>$v['new']];}
             $op=$this->operation();
             if(($op['status']??'')!=='active'||$op['action']!=='restock'||(int)$op['old_medicine_id']!==$id||$op['request_key']!==$b['request_key'])throw new KioskError('MAINTENANCE_REQUIRED','Start or resume Add Stock safety checks before loading tablets.');
-            foreach(['machine_powered_off','motors_stopped','no_unrecorded_coins'] as $field)if(($b[$field]??false)!==true)throw new KioskError('PHYSICAL_CONFIRMATION','Confirm the entire machine is powered off, dispensers stopped, and no coins remain unrecorded.',422);
+            // Add Stock no longer requires operator isolation checkboxes (owner decision,
+            // 20 Nov 2026). Whatever was confirmed is recorded as-is in the audit log below.
+            $isolation=[];foreach(['machine_powered_off','motors_stopped','no_unrecorded_coins'] as $field)$isolation[$field]=($b[$field]??false)===true;
             $s=null;foreach($slots as $candidate)if((int)$candidate['medicine_id']===$id)$s=$candidate;
             if(!$s||$s['slot_status']!=='blocked'||(int)$s['id']!==$op['slot_id'])throw new KioskError('SLOT_BLOCKED','The assigned slot no longer matches this stock check.');
             $d=$this->safe($m,(int)$s['id'],false);
@@ -147,7 +149,7 @@ final class SlotInventoryService {
             $this->q("UPDATE machine_slots SET slot_status='ready' WHERE id=?",[$s['id']]);
             $op['status']='completed';$op['new_quantity']=$next;$op['completed_by']=(int)$actor['id'];$op['completed_at']=date('c');$this->store($op);
             $this->q("INSERT INTO notifications(notification_type,title,message,severity,medicine_id) VALUES('stock_added','Stock added',?,'info',?)",[$stock['name'].': +'.$delta.' tablets. Current stock: '.$next.'.',$id]);
-            $this->log('stock_adjusted',$actor,['request_key'=>$b['request_key'],'medicine_id'=>$id,'medicine_name'=>$stock['name'],'slot_number'=>(int)$s['slot_number'],'previous'=>(int)$stock['quantity'],'change'=>$delta,'new'=>$next,'reason'=>$reason,'physically_loaded'=>true,'same_expiry'=>true]);return ['medicine_id'=>$id,'previous_quantity'=>(int)$stock['quantity'],'new_quantity'=>$next];
+            $this->log('stock_adjusted',$actor,['request_key'=>$b['request_key'],'medicine_id'=>$id,'medicine_name'=>$stock['name'],'slot_number'=>(int)$s['slot_number'],'previous'=>(int)$stock['quantity'],'change'=>$delta,'new'=>$next,'reason'=>$reason,'physically_loaded'=>true,'same_expiry'=>true,'operator_isolation_confirmed'=>$isolation]);return ['medicine_id'=>$id,'previous_quantity'=>(int)$stock['quantity'],'new_quantity'=>$next];
         });
     }
 }

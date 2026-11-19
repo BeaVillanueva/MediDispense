@@ -34,12 +34,9 @@ export function RestockDialog({
   const validQuantity =
     /^[1-9][0-9]*$/.test(quantity) &&
     amount <= remaining;
-  const isolated = ["poweredOff", "stopped", "coins"].every(k => checks[k]);
   const valid = validQuantity &&
     reason.trim().length >= 5 &&
-    ["loaded", "sameExpiry", "poweredOff", "stopped", "coins"].every(
-      k => checks[k]
-    );
+    ["loaded", "sameExpiry"].every(k => checks[k]);
   const refresh = () => {
     void utils.invalidate();
     onChanged();
@@ -96,9 +93,6 @@ export function RestockDialog({
               requestKey: op.request_key,
               physicallyLoaded: true,
               sameExpiry: true,
-              machinePoweredOff: true,
-              motorsStopped: true,
-              noUnrecordedCoins: true,
             });
           }
         }}
@@ -160,35 +154,9 @@ export function RestockDialog({
         ) : (
           <>
             <p className="medical-note">
-              Safety check passed. Purchases are paused. Turn off the entire machine, including coin payment, before loading.
+              Ready to load. Purchases are paused until you confirm. Tip: switch off the machine while loading tablets.
             </p>
-            <div className="slot-confirmations">
-              {(
-                [
-                  [
-                    "poweredOff",
-                    "The entire machine, including coin payment, is powered off.",
-                  ],
-                  ["stopped", "All dispensers have stopped."],
-                  [
-                    "coins",
-                    "I checked for coins that were accepted but not recorded. There are none.",
-                  ],
-                ] as const
-              ).map(([key, label]) => (
-                <label key={key}>
-                  <input
-                    type="checkbox"
-                    checked={!!checks[key]}
-                    onChange={e =>
-                      setChecks({ ...checks, [key]: e.target.checked })
-                    }
-                  />
-                  <span>{label}</span>
-                </label>
-              ))}
-            </div>
-            <fieldset className="add-stock-loaded" disabled={!isolated || pending}>
+            <fieldset className="add-stock-loaded" disabled={pending}>
               <legend>Load and confirm</legend>
               <p>Add {validQuantity?amount:"the selected"} tablets to Slot {medicine.slotNumber}. Use the same expiry: {medicine.expiryDate}.</p>
               <div className="slot-confirmations">
