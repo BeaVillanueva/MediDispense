@@ -41,28 +41,40 @@ export function RestockDialog({
     void utils.invalidate();
     onChanged();
   };
-  const begin = trpc.inventory.begin.useMutation({
-    onSuccess: result => {
-      setLocalOp(result);
-      refresh();
-    },
-    onError: e => toast.error(e.message),
-    onSettled: () => {
-      lock.current = false;
-    },
-  });
-  const restock = trpc.inventory.restock.useMutation({
-    onSuccess: () => {
+  const begin = trpc.inventory.begin.useMutation();
+  const restock = trpc.inventory.restock.useMutation();
+  const pending = begin.isPending || restock.isPending;
+  // One step: the server pre-check (begin) and the stock record (restock) run
+  // back to back, so purchases are never left paused by an unfinished dialog.
+  // If a previous attempt already started the check, it is reused.
+  const addStock = async () => {
+    if (lock.current || !medicine.slotNumber || !valid) return;
+    lock.current = true;
+    try {
+      const active = op ?? await begin.mutateAsync({
+        request_key: key,
+        slot_number: medicine.slotNumber,
+        action: "restock",
+      });
+      setLocalOp(active);
+      await restock.mutateAsync({
+        medicineId: medicine.id,
+        quantity: amount,
+        reason: reason.trim(),
+        requestKey: active.request_key,
+        physicallyLoaded: true,
+        sameExpiry: true,
+      });
       toast.success("Stock added and recorded.");
       refresh();
       onClose();
-    },
-    onError: e => toast.error(e.message),
-    onSettled: () => {
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Stock could not be added.");
+      refresh();
+    } finally {
       lock.current = false;
-    },
-  });
-  const pending = begin.isPending || restock.isPending;
+    }
+  };
   const changeQuantity = (value: string) => {
     setQuantity(value);
     setChecks(previous => ({ ...previous, loaded: false }));
@@ -76,25 +88,7 @@ export function RestockDialog({
         aria-labelledby="restock-title"
         onSubmit={e => {
           e.preventDefault();
-          if (lock.current) return;
-          if (!op && medicine.slotNumber && validQuantity && !pending && !overview.isPending) {
-            lock.current = true;
-            begin.mutate({
-              request_key: key,
-              slot_number: medicine.slotNumber,
-              action: "restock",
-            });
-          } else if (op && valid) {
-            lock.current = true;
-            restock.mutate({
-              medicineId: medicine.id,
-              quantity: amount,
-              reason: reason.trim(),
-              requestKey: op.request_key,
-              physicallyLoaded: true,
-              sameExpiry: true,
-            });
-          }
+          if (!pending && !overview.isPending) void addStock();
         }}
       >
         <div className="modal-head">
@@ -147,15 +141,8 @@ export function RestockDialog({
         <small id="restock-quantity-help" className={quantity!==""&&!validQuantity?"restock-error":"add-stock-help"}>
           {remaining===0?"This slot is full.":quantity!==""&&!validQuantity?`Enter a whole number from 1 to ${remaining}.`:`You can add up to ${remaining} tablets.`}
         </small>
-        {!op ? (
-          <>
-            <p className="add-stock-safety"><ShieldCheck size={18} aria-hidden="true"/><span>Keep the machine connected. Continue checks it first; do not load tablets yet.</span></p>
-          </>
-        ) : (
-          <>
-            <p className="medical-note">
-              Ready to load. Purchases are paused until you confirm. Tip: switch off the machine while loading tablets.
-            </p>
+        <>
+            <p className="add-stock-safety"><ShieldCheck size={18} aria-hidden="true"/><span>Load the tablets, tick both boxes, then press Add Stock. The system checks that no purchase is in progress before recording.</span></p>
             <fieldset className="add-stock-loaded" disabled={pending}>
               <legend>Load and confirm</legend>
               <p>Add {validQuantity?amount:"the selected"} tablets to Slot {medicine.slotNumber}. Use the same expiry: {medicine.expiryDate}.</p>
@@ -164,9 +151,7 @@ export function RestockDialog({
               </div>
             </fieldset>
             <details className="add-stock-notes"><summary>Stock note</summary><label>Reason<input required minLength={5} maxLength={200} value={reason} onChange={e=>setReason(e.target.value)}/></label></details>
-            <small className="add-stock-help">Need to stop? Close and resume later. Purchases stay paused until this is finished.</small>
-          </>
-        )}
+        </>
         {(begin.error || restock.error) && (
           <p role="alert">{restock.error?.message ?? begin.error?.message}</p>
         )}
@@ -178,24 +163,19 @@ export function RestockDialog({
             disabled={pending}
             onClick={onClose}
           >
-            {op ? "Close - resume later" : "Cancel"}
+            Cancel
           </button>
           <button
             className="primary-button"
             disabled={
               pending ||
               overview.isPending ||
-              !validQuantity ||
+              !valid ||
               remaining === 0 ||
-              (!!op && !valid) ||
               !medicine.slotNumber
             }
           >
-            {pending
-              ? "Checking..."
-              : op
-                ? "Confirm added stock"
-                : "Continue"}
+            {pending ? "Adding..." : "Add Stock"}
           </button>
         </div>
       </form>
