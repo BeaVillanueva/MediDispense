@@ -1,11 +1,15 @@
 # MediDispense PHP API (Apache) — also used by the alert-worker and reference-sync services.
 FROM php:8.2-apache
 
-RUN docker-php-ext-install pdo_mysql \
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends unzip \
+ && rm -rf /var/lib/apt/lists/* \
+ && docker-php-ext-install pdo_mysql \
  && a2enmod rewrite headers \
  && printf 'date.timezone=Asia/Manila\nexpose_php=Off\nlog_errors=On\nerror_log=/proc/self/fd/2\ndisplay_errors=Off\n' > /usr/local/etc/php/conf.d/medidispense.ini
 
 COPY --from=composer:2.8.3 /usr/bin/composer /usr/bin/composer
+ENV COMPOSER_ALLOW_SUPERUSER=1
 
 WORKDIR /var/www/html
 COPY backend/composer.json backend/composer.lock backend/
