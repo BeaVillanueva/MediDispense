@@ -7,6 +7,11 @@ CONFIG_DIR=/var/www/html/backend/config
 PHOTO_DIR=/var/www/html/backend/public/manus-storage/profile-photos
 export PORT="${PORT:-8080}"
 
+# mod_php requires exactly one MPM (prefork). Some hosts end up with event/worker
+# enabled as well, which makes Apache refuse to start ("More than one MPM loaded").
+rm -f /etc/apache2/mods-enabled/mpm_event.* /etc/apache2/mods-enabled/mpm_worker.*
+[ -e /etc/apache2/mods-enabled/mpm_prefork.load ] || a2enmod mpm_prefork >/dev/null
+
 # Listen on every interface (IPv4 + IPv6: Railway private networking uses IPv6).
 echo "Listen ${PORT}" > /etc/apache2/ports.conf
 
