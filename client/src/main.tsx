@@ -21,6 +21,13 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
 
+  // MediDispense signs in with Firebase. The legacy OAuth portal is only used when
+  // it is actually configured; otherwise end the Firebase session so the normal
+  // login screen appears (instead of crashing on an undefined portal URL).
+  if (!import.meta.env.VITE_OAUTH_PORTAL_URL) {
+    window.dispatchEvent(new CustomEvent("medidispense:auth-expired"));
+    return;
+  }
   startLogin();
 };
 

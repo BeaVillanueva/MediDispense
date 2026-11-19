@@ -109,6 +109,17 @@ export function FirebaseAuthProvider({ children }: { children: ReactNode }) {
       ending.current = false;
     }
   }, []);
+  // The API reported that the server-side session is gone (e.g. it expired).
+  // Return to the login screen with a clear message instead of failing silently.
+  useEffect(() => {
+    if (kiosk) return;
+    const onExpired = () => {
+      void endSession("Your session ended. Please log in again.");
+      navigate("/");
+    };
+    window.addEventListener("medidispense:auth-expired", onExpired);
+    return () => window.removeEventListener("medidispense:auth-expired", onExpired);
+  }, [kiosk, endSession, navigate]);
   const refreshProfile = useCallback(async () => {
     if (!user || kiosk) return;
     try {

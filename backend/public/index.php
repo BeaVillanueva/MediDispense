@@ -21,6 +21,20 @@ $config = require __DIR__ . '/../config/config.php';
 session_name('medidispense_session');
 ini_set('session.use_strict_mode', '1');
 session_set_cookie_params(['httponly'=>true,'secure'=>!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off','samesite'=>'Lax','path'=>'/']);
+// Hosted (non-development) deployments keep sessions in MySQL so logins survive
+// container restarts/redeploys. If the database is unreachable, fall back to file
+// sessions; the request then fails normally at the database connection below.
+if (($config['app_env'] ?? 'development') !== 'development') {
+    require_once __DIR__ . '/../src/Http/DatabaseSessionHandler.php';
+    try {
+        ini_set('session.gc_probability', '1');
+        ini_set('session.gc_divisor', '100');
+        session_set_save_handler(new DatabaseSessionHandler(Database::connect($config)), true);
+    } catch (Throwable $sessionStoreError) {
+        error_log('[MediDispense] Database session store unavailable: ' . $sessionStoreError->getMessage());
+        Database::resetConnection();
+    }
+}
 session_start();
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
