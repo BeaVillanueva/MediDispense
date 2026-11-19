@@ -1,9 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Transaction } from "@shared/medidispense";
-import { dispensingConfirmationTimedOut, timeoutReturnSeconds, recoveryConfirmed } from "./dispensingTimeout";
+import { dispensingConfirmationTimedOut, timeoutReturnSeconds, recoveryConfirmed, dispensingRecoveryMessage } from "./dispensingTimeout";
 
 const transaction = { paymentStatus: "successful", dispensingStatus: "dispensing" } as Transaction;
 describe("dispensing confirmation timeout", () => {
+  it.each(['UNRESOLVED_COIN_EVENTS','CONTROLLER_UNVERIFIED','ACTIVE_FIREBASE_COMMAND'])('cannot unlock a failed purchase with a %s blocker',code=>{
+    const t={...transaction,dispensingStatus:'failed',adminRecovered:true,dispensingRecovery:{ready:false,reviewSaved:true,returnRequested:true,blockers:[{code,message:'Backend evidence'}]}} as Transaction;
+    expect(recoveryConfirmed(t)).toBe(false);
+    expect(dispensingRecoveryMessage(t)).not.toContain('You can return');
+  });
   it("returns home 20 seconds after the persisted timeout, even after reload", () => {
     expect(timeoutReturnSeconds(120)).toBe(20);
     expect(timeoutReturnSeconds(133)).toBe(7);

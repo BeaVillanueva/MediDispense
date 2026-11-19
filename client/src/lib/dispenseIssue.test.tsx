@@ -6,12 +6,37 @@ import {canReviewDispensingIssue,validPhysicalQuantity,recoveryFormErrors,recove
 import {recoveryConfirmed} from './dispensingTimeout';
 import {canReturnAfterDispensing} from './medicineInformation';
 const h=vi.hoisted(()=>({data:null as DispenseIssueDetails|null}));
-vi.mock('@/lib/trpc',()=>({trpc:{transactions:{issueDetails:{useQuery:()=>({data:h.data,isPending:!h.data,isFetching:false,isError:false,error:null,refetch:vi.fn()})},resolveIssue:{useMutation:()=>({isPending:false,error:null,mutate:vi.fn()})}}}}));
+vi.mock('@/lib/trpc',()=>({trpc:{transactions:{issueDetails:{useQuery:()=>({data:h.data,isPending:!h.data,isFetching:false,isError:false,error:null,refetch:vi.fn()})},saveDeliveryCheck:{useMutation:()=>({isPending:false,error:null,mutate:vi.fn()})},prepareDeliveryInspection:{useMutation:()=>({isPending:false,error:null,mutate:vi.fn()})},reopenAfterReview:{useMutation:()=>({isPending:false,error:null,mutate:vi.fn()})}}}}));
 import {DispensingIssueDialog} from '@/components/DispensingIssueDialog';
 const transaction:Transaction={id:'TXN-REVIEW-TEST',databaseId:1,items:[{medicineId:1,medicineName:'Test medicine',quantity:3,unitPrice:10,subtotal:30}],total:30,amountPaid:30,change:0,paymentStatus:'successful',dispensingStatus:'failed',createdAt:'',requestedQuantity:3,dispensedQuantity:1,sensorConfirmedQuantity:1,dispensingRequestId:2,slotNumber:1};
 const review:NonNullable<Transaction['issueRecovery']>={revision:1,outcome:'partial',verifiedQuantity:2,sensorConfirmedQuantity:1,requestedQuantity:3,reviewRequired:true,inspectionComplete:false,stockVerified:true,returnRequested:false,machineReuseReady:false,obligationStatus:'pending'};
 beforeEach(()=>{h.data={transaction,recordedStock:5,history:[],returnEligibility:{ready:false,blockers:[{code:'REVIEW_NOT_SAVED',message:'Save your review first.'}]}};vi.stubGlobal('crypto',{getRandomValues:(a:Uint8Array)=>a.fill(1)});});
 describe('admin physical dispensing review',()=>{
+  it('displays the database transaction number, never the dispensing request number, and retains the full reference',()=>{
+    const record={...transaction,databaseId:182,dispensingRequestId:96,id:'TXN-ORIGINAL-PRESERVED'};
+    h.data={...h.data!,transaction:record};
+    const html=renderToStaticMarkup(<DispensingIssueDialog transaction={transaction} onClose={()=>{}} onChanged={()=>{}}/>);
+    expect(html).toContain('Transaction #182');
+    expect(html).not.toContain('Transaction #96');
+    expect(html).not.toContain('Transaction #1<');
+    expect(html).toMatch(/<details[^>]*><summary>Full reference<\/summary><small>TXN-ORIGINAL-PRESERVED<\/small><\/details>/);
+  });
+  it('does not invent a transaction number when the database ID is unavailable',()=>{
+    h.data={...h.data!,transaction:{...transaction,databaseId:undefined,dispensingRequestId:96}};
+    const html=renderToStaticMarkup(<DispensingIssueDialog transaction={transaction} onClose={()=>{}} onChanged={()=>{}}/>);
+    expect(html).toContain('Transaction number unavailable');
+    expect(html).not.toContain('Transaction #96');
+  });
+  it('accepts an explicitly selected zero delivery while rejecting missing or contradictory counts',()=>{
+    const form:RecoveryForm={outcome:'not_dispensed',quantity:'0',stock:'1',notes:'Physically checked stock and delivery',obligation:'pending',reference:'',complete:true,inspected:true,stopped:true,disconnected:true};
+    expect(recoveryFormErrors(form,0,0,1)).toEqual([]);
+    expect(JSON.parse(recoveryFormSignature(form))).toMatchObject({quantity:0,stock:1,obligation:'pending',reference:''});
+    expect(recoveryFormErrors({...form,quantity:''},0,0,1)).toContain('Enter how many tablets came out.');
+    expect(recoveryFormErrors(form,1,1,1)).not.toEqual([]);
+    expect(recoveryFormErrors({...form,outcome:'partial',quantity:'1'},0,0,2)).toEqual([]);
+    expect(recoveryFormErrors({...form,outcome:'dispensed_sensor_missed',quantity:'2'},0,0,2)).toEqual([]);
+    for(const outcome of ['partial','dispensed_sensor_missed'] as const)expect(recoveryFormErrors({...form,outcome,quantity:''},0,0,2)).toContain('Enter how many tablets came out.');
+  });
   it('explains missing quantities and physical confirmations without assuming a result',()=>{
     const form:RecoveryForm={outcome:'',quantity:'',stock:'',notes:'',obligation:'pending',reference:'',complete:false,inspected:false,stopped:false,disconnected:false};
     expect(recoveryFormErrors(form,0,0,1)).toContain('Enter how many tablets came out.');
@@ -40,11 +65,12 @@ describe('admin physical dispensing review',()=>{
   });
   it('shows transaction evidence, physical outcomes, explicit safety confirmations and obligation choices',()=>{
     const html=renderToStaticMarkup(<DispensingIssueDialog transaction={transaction} onClose={()=>{}} onChanged={()=>{}}/>);
-    for(const text of ['Check Medicine Delivery','Test medicine','TXN-REVIEW-TEST','Machine counted','Tablets ordered','All tablets came out','No tablets came out','Only some tablets came out','Tablets that came out','checked the machine','moving parts have stopped','switched off or disconnected','Reopen Kiosk'])expect(html).toContain(text);
+    for(const text of ['Check Medicine Delivery','Test medicine','TXN-REVIEW-TEST','ordered','paid','All tablets came out','No tablets came out','Some tablets came out','Tablets delivered','Tablets remaining in slot','Observed from outside','without opening or reaching into the machine','Save Check'])expect(html).toContain(text);
     expect(html).toContain('disabled=""');
-    expect(html).toContain('This form does not release tablets or send refunds');
+    expect(html).not.toContain('issue-stats');
+    expect(html).not.toContain('Reopen Kiosk');
     expect(html).not.toContain('restock-modal');
-    expect(html).toContain('placeholder="Enter total" value=""');
+    expect(html).toContain('placeholder="Enter count" value=""');
   });
   it('requires complete backend recovery and an explicit return request before clearing the kiosk',()=>{
     expect(recoveryConfirmed({...transaction,adminRecovered:true,issueRecovery:review})).toBe(false);

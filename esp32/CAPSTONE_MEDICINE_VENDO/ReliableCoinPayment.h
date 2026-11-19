@@ -136,9 +136,9 @@ static bool captureIsQuiescent() {
 // Explicit receipt validation is required. A 2xx response alone is not an event acknowledgement.
 bool sendCoinPayment(const StoredCoin &event) {
   if(WiFi.status()!=WL_CONNECTED)return false;
-  WiFiClient client;HTTPClient http;
-  http.setConnectTimeout(3000);http.setTimeout(5000);
-  if(!http.begin(client,String(BACKEND_BASE_URL)+"/api/payments/verify"))return false;
+  BackendClient client;HTTPClient http;
+  http.setConnectTimeout(backendConnectTimeoutMs());http.setTimeout(backendResponseTimeoutMs());
+  if(!http.begin(client.get(),String(BACKEND_BASE_URL)+"/api/payments/verify"))return false;
   http.addHeader("Content-Type","application/json");http.addHeader("X-Hardware-Key",HARDWARE_API_KEY);
   JsonDocument payload;payload["transaction_id"]=event.transactionId;payload["event_id"]=event.eventId;payload["coin_amount"]=event.amount;
   String body;serializeJson(payload,body);
@@ -218,12 +218,12 @@ static void invalidatePaymentSession(const char *reason) {
 }
 void checkPaymentSession() {
   if(WiFi.status()!=WL_CONNECTED){invalidatePaymentSession("WIFI_DISCONNECTED");return;}
-  WiFiClient client;HTTPClient http;http.setConnectTimeout(3000);http.setTimeout(5000);
+  BackendClient client;HTTPClient http;http.setConnectTimeout(backendConnectTimeoutMs());http.setTimeout(backendResponseTimeoutMs());
   int owner=coinCoreCaptureOwner(&coinJournal);
   char freshness[17];snprintf(freshness,sizeof(freshness),"%08lX%08lX",(unsigned long)esp_random(),(unsigned long)esp_random());
   uint32_t requestAt=millis();
   String url=String(BACKEND_BASE_URL)+"/api/payments/session?bound_transaction_id="+String(owner)+"&session_check="+freshness;
-  if(!http.begin(client,url)){invalidatePaymentSession("SESSION_REQUEST_FAILED");return;}
+  if(!http.begin(client.get(),url)){invalidatePaymentSession("SESSION_REQUEST_FAILED");return;}
   http.addHeader("X-Hardware-Key",HARDWARE_API_KEY);
   int code=http.GET();String response=code==200?http.getString():"";http.end();
   JsonDocument doc;
@@ -304,9 +304,9 @@ void reportCoinDiagnostics() {
   static uint32_t last=0;if(millis()-last<10000)return;last=millis();
   JsonDocument doc;coinDiagnostics(doc);String body;serializeJson(doc,body);Serial.println(body);
   if(WiFi.status()!=WL_CONNECTED){Serial.println("[Diagnostics] POST skipped: Wi-Fi is offline; local JSON is not a server acknowledgement.");return;}
-  WiFiClient client;HTTPClient http;http.setConnectTimeout(3000);http.setTimeout(5000);
+  BackendClient client;HTTPClient http;http.setConnectTimeout(backendConnectTimeoutMs());http.setTimeout(backendResponseTimeoutMs());
   const uint32_t started=millis();
-  if(!http.begin(client,String(BACKEND_BASE_URL)+"/api/payments/diagnostics")){Serial.println("[Diagnostics] POST initialization failed.");return;}
+  if(!http.begin(client.get(),String(BACKEND_BASE_URL)+"/api/payments/diagnostics")){Serial.println("[Diagnostics] POST initialization failed.");return;}
   http.addHeader("Content-Type","application/json");http.addHeader("X-Hardware-Key",HARDWARE_API_KEY);
   int code=http.POST(body);
   bool saved=false;

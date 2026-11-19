@@ -13,6 +13,24 @@ function render(){h.state=0;h.ref=0;return useKioskCheckout();}
 async function mount(){h.recover.mockResolvedValue({...base});await render().recover();return render();}
 describe("payment expiration verification and recovery",()=>{
   beforeEach(()=>{h.cells=[];h.refs=[];[h.expire,h.get,h.recover,h.cancel,h.remove].forEach(fn=>fn.mockReset());});
+  it('refreshes the original failed purchase without clearing its session or recharging',async()=>{
+    const failed={...base,amountPaid:20,paymentStatus:'successful',dispensingStatus:'failed',dispensingRecovery:{ready:false,reviewSaved:false,returnRequested:false,blockers:[]}};
+    h.recover.mockResolvedValue(failed);await render().recover(true);
+    expect(render().transaction?.amountPaid).toBe(20);expect(render().recoveryMessage).toContain('latest confirmed');expect(h.remove).not.toHaveBeenCalled();expect(h.cancel).not.toHaveBeenCalled();
+    expect(h.recover).toHaveBeenCalledWith(expect.objectContaining({requestId:'same-original-session'}));
+  });
+  it('rechecks readiness before clearing a failed purchase and prevents repeated returns',async()=>{
+    const ready={...base,amountPaid:20,paymentStatus:'successful',dispensingStatus:'failed',adminRecovered:true,dispensingRecovery:{ready:true,reviewSaved:true,returnRequested:true,blockers:[]}};
+    h.recover.mockResolvedValue(ready);await render().recover();
+    let release!:(v:any)=>void;h.get.mockReturnValue(new Promise(resolve=>{release=resolve;}));
+    const pending=render().reset();expect(await render().reset()).toBe(false);expect(h.remove).not.toHaveBeenCalled();
+    release(ready);expect(await pending).toBe(true);expect(h.get).toHaveBeenCalledOnce();expect(h.remove).toHaveBeenCalledOnce();expect(h.cancel).not.toHaveBeenCalled();
+  });
+  it.each(['UNRESOLVED_COIN_EVENTS','CONTROLLER_UNVERIFIED'])('retains the session when the fresh return check reports %s',async code=>{
+    const ready={...base,amountPaid:20,paymentStatus:'successful',dispensingStatus:'failed',adminRecovered:true,dispensingRecovery:{ready:true,reviewSaved:true,returnRequested:true,blockers:[]}};
+    h.recover.mockResolvedValue(ready);await render().recover();h.get.mockResolvedValue({...ready,dispensingRecovery:{...ready.dispensingRecovery,ready:false,blockers:[{code,message:'Blocked'}]}});
+    expect(await render().reset()).toBe(false);expect(h.remove).not.toHaveBeenCalled();expect(h.cancel).not.toHaveBeenCalled();
+  });
   it("clears only a server-confirmed expired session when the return callback runs",async()=>{
     const checkout=await mount();
     h.expire.mockResolvedValue({...base,paymentStatus:'cancelled',dispensingStatus:'cancelled',paymentExpiry:{confirmed:true,returnAtMs:3002}});
@@ -49,6 +67,13 @@ describe("payment expiration verification and recovery",()=>{
   it("retains a successfully dispensed purchase until backend-confirmed handoff",async()=>{
     h.recover.mockResolvedValue({...base,amountPaid:20,paymentStatus:"successful",dispensingStatus:"dispensed",requestedQuantity:1,dispensedQuantity:1,customerHandoffSafe:false});
     await render().recover();expect(await render().reset()).toBe(false);expect(h.remove).not.toHaveBeenCalled();expect(render().transaction?.paymentStatus).toBe("successful");
+  });
+  it("can clear a completed purchase only after a fresh backend recovery confirms handoff",async()=>{
+    const completed={...base,amountPaid:20,paymentStatus:"successful" as const,dispensingStatus:"dispensed" as const,requestedQuantity:1,dispensedQuantity:1,customerHandoffSafe:false};
+    h.recover.mockResolvedValue(completed);await render().recover();
+    expect(await render().reset()).toBe(false);expect(h.remove).not.toHaveBeenCalled();
+    h.recover.mockResolvedValue({...completed,customerHandoffSafe:true});await render().recover(true);
+    expect(await render().reset()).toBe(true);expect(h.remove).toHaveBeenCalledOnce();expect(h.cancel).not.toHaveBeenCalled();
   });
   it("does not clear an unrecovered dispensing failure",async()=>{
     h.recover.mockResolvedValue({...base,amountPaid:20,paymentStatus:"successful",dispensingStatus:"failed",adminRecovered:false});

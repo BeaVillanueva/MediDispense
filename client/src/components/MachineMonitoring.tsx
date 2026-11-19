@@ -24,7 +24,7 @@ export default function MachineMonitoring() {
     {key:"payment" as const,label:"Coin Payment",technical:"Coin acceptor",raw:data.coinAcceptorStatus,icon:CreditCard},
   ].map(item=>({...item,state:componentState(item.raw,data.componentReports?.[item.key]===true,fresh)}));
 
-  return <div className="page-stack machine-monitoring">
+  return <div className="page-stack machine-monitoring reports-view admin-unified">
     
     <section className={`machine-overview mm-hero mm-hero-${connection.tone}`}>
       <div className="mm-machine-art" aria-hidden="true"><div className="mm-art-orbit"/><div className="mm-art-machine"><div className="mm-art-screen"><Pill size={30}/></div><div className="mm-art-products"><span/><span/><span/></div><div className="mm-art-tray"/></div><div className="mm-art-signal"><Radio size={25}/></div></div>

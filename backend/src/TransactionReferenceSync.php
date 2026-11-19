@@ -4,16 +4,18 @@ declare(strict_types=1);
 /** Background metadata only. No command, payment, inventory, or status mutations. */
 final class TransactionReferenceSync {
     public function __construct(private PDO $db,private TransactionReferenceGateway $firebase) {}
-    public function initialize(): void {
+    public function initialize(?callable $stop=null): void {
         // Establish explicit high-water baselines, never backfill existing history.
         foreach(['payments'=>'transactions','dispensing'=>'dispensing_requests'] as $kind=>$table) {
+            if($stop && $stop())return;
             $max=(int)$this->db->query("SELECT COALESCE(MAX(id),0) FROM $table")->fetchColumn();
             $this->db->prepare('INSERT IGNORE INTO system_settings(setting_key,setting_value) VALUES(?,?)')->execute(['txn_ref_baseline_'.$kind,(string)$max]);
         }
     }
-    public function run(): array {
-        $this->initialize();$results=[];
+    public function run(?callable $stop=null): array {
+        $this->initialize($stop);$results=[];
         foreach(['payments','dispensing'] as $kind) {
+            if($stop && $stop())return $results;
             $q=$this->db->prepare('SELECT setting_value FROM system_settings WHERE setting_key=?');$q->execute(['txn_ref_baseline_'.$kind]);$baseline=(int)$q->fetchColumn();
             $from=$kind==='payments'?'transactions t':'dispensing_requests d JOIN transactions t ON t.id=d.transaction_id';
             $entity=$kind==='payments'?'t.id':'d.id';
@@ -21,6 +23,7 @@ final class TransactionReferenceSync {
             // Per-entity markers also catch transactions committed out of numeric-ID order.
             $q=$this->db->prepare("SELECT t.id transaction_id,t.transaction_code,$request request_id,$entity entity_id FROM $from WHERE $entity>? AND NOT EXISTS (SELECT 1 FROM system_settings s WHERE s.setting_key=CONCAT('txn_ref_done_$kind:', $entity)) ORDER BY $entity LIMIT 20");$q->execute([$baseline]);
             foreach($q->fetchAll() as $row) {
+                if($stop && $stop())return $results;
                 try {
                     $this->firebase->syncTransactionReference($kind,(int)$row['transaction_id'],$row['transaction_code'],$row['request_id']===null?null:(int)$row['request_id']);
                     $this->db->prepare('INSERT IGNORE INTO system_settings(setting_key,setting_value) VALUES(?,?)')->execute(['txn_ref_done_'.$kind.':'.$row['entity_id'],$row['transaction_code']]);

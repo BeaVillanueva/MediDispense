@@ -8,6 +8,9 @@ build/
 *.dist
 
 # Environment variables
+backend/config/coin-review.local.php
+**/CoinReview.local.h
+**/WiFiCredentials.local.h
 .env
 .env.local
 .env.development.local

@@ -1,0 +1,6 @@
+# LAB ONLY. Retired original overlaps app0/app1/spiffs/coredump; destructive reuse accepted.
+# Production controller always protected. NO hardware write is authorized by this file.
+# No partition named nvs: avoid Arduino startup opening a historical default NVS.
+# Name,Type,SubType,Offset,Size,Flags
+labapp,app,factory,0x10000,0x1F0000,
+labstore,data,nvs,0x3E0000,0x20000,

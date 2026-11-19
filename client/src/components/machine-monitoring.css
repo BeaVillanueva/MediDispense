@@ -70,3 +70,21 @@
 @media(max-width:850px) { .machine-monitoring .mm-hero { grid-template-columns:130px minmax(0,1fr); } .machine-monitoring .mm-hero>.primary-button { grid-column:2; justify-self:start; } .machine-monitoring .slot-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 @media(max-width:600px) { .machine-monitoring .mm-hero { grid-template-columns:1fr; text-align:center; justify-items:center; gap:18px; } .machine-monitoring .machine-copy>.mm-status { margin:auto; } .machine-monitoring .mm-hero>.primary-button { grid-column:1; justify-self:stretch; } .machine-monitoring .hardware-grid,.machine-monitoring .slot-grid { grid-template-columns:1fr; } .machine-monitoring .mm-stock-panel .panel-head { align-items:flex-start; gap:12px; flex-wrap:wrap; } }
 @media(prefers-reduced-motion:reduce) { .machine-monitoring .mm-component { transition:none; } .mm-refreshing { animation:none; } }
+/* Compact machine status overview, without changing its status data. */
+.machine-monitoring .mm-hero { grid-template-columns:96px minmax(0,1fr) auto; gap:20px; padding:20px 24px; border-radius:19px; }
+.machine-monitoring .machine-copy h2 { font-size:25px; margin:5px 0 7px; }
+.machine-monitoring .machine-copy .eyebrow { font-size:10px; }
+.machine-monitoring .machine-copy p { font-size:13px; line-height:1.5; max-width:600px; margin:0 0 9px; }
+.machine-monitoring .machine-copy>.mm-status { font-size:12px; padding:6px 11px; }
+.machine-monitoring .mm-hero>.primary-button { grid-column:auto; justify-self:end; min-height:44px; padding:10px 14px; font-size:12px; }
+.machine-monitoring .mm-machine-art { width:96px; height:112px; }
+.machine-monitoring .mm-art-orbit { width:94px; height:94px; box-shadow:0 0 0 8px #cfe3fc55; }
+.machine-monitoring .mm-art-machine { width:64px; height:94px; padding:8px 6px; border-radius:12px; }
+.machine-monitoring .mm-art-screen { height:38px; border-radius:6px; }
+.machine-monitoring .mm-art-screen svg { width:23px; height:23px; }
+.machine-monitoring .mm-art-products { gap:4px; margin-top:7px; }
+.machine-monitoring .mm-art-products span { width:10px; height:12px; border-radius:3px; }
+.machine-monitoring .mm-art-tray { height:5px; margin-top:6px; }
+.machine-monitoring .mm-art-signal { width:31px; height:31px; right:-1px; bottom:8px; border-radius:10px; }
+.machine-monitoring .mm-art-signal svg { width:19px; height:19px; }
+@media(max-width:600px) { .machine-monitoring .mm-hero { grid-template-columns:80px minmax(0,1fr); gap:14px; padding:18px; text-align:left; justify-items:stretch; } .machine-monitoring .mm-machine-art { width:80px; justify-self:center; } .machine-monitoring .machine-copy h2 { font-size:22px; } .machine-monitoring .machine-copy>.mm-status { margin:0; } .machine-monitoring .mm-hero>.primary-button { grid-column:1 / -1; justify-self:stretch; } }

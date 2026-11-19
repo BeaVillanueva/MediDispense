@@ -3,7 +3,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Pill,
+  FlaskConical,
   LoaderCircle,
   ShoppingBag,
 } from "lucide-react";
@@ -96,8 +96,8 @@ export default function Kiosk() {
     setNotice("");
     setCategory("All medicines");
   };
-  const reset = async () => {
-    if (!(await checkout.reset())) return;
+  const reset = async (options?: { receiptDone?: boolean }) => {
+    if (!(await checkout.reset(options))) return;
     setBrowseWhileUnresolved(false);
     setPurchase(null);
     setSelectedId(null);
@@ -157,11 +157,11 @@ export default function Kiosk() {
     }
   }
   return (
-    <div className="kv-shell">
+    <div className={`kv-shell ${checkout.transaction?"kv-checkout-view kv-purchase-view":view==="review"||view==="quantity"?"kv-purchase-view":""}`}>
       <header className="kv-header">
         <div className="kv-brand">
           <span className="kv-brand-icon">
-            <Pill size={30} />
+            <FlaskConical size={25} />
           </span>
           <div>
             <strong>
@@ -373,10 +373,10 @@ export default function Kiosk() {
                       <h1>Select Quantity</h1>
                       <h2>{selected.name}</h2>
                       <div className="kv-detail-price">
-                        {peso(selected.price)} <span>per unit</span>
+                        {peso(selected.price)} <span>/ {medicineSaleUnit(selected)}</span>
                       </div>
                       <p className="kv-stock">
-                        {selected.stockQuantity} available
+                        {medicineStockLabel(selected)}
                       </p>
                       <div className="kv-quantity-section">
                         <h2>Choose quantity</h2>

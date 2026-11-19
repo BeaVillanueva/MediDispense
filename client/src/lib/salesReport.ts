@@ -15,7 +15,7 @@ export function salesReport(transactions: Transaction[], start: string, end: str
     if (t.paymentStatus !== "successful" || t.dispensingStatus !== "dispensed" || !date || (start && date < start) || (end && date > end)) return [];
     const items = t.items.filter(i => product === "all" || String(i.medicineId) === product);
     if (!items.length) return [];
-    return [{ id: t.id, date, items, units: items.reduce((n, i) => n + i.quantity, 0), cents: items.reduce((n, i) => n + Math.round(i.subtotal * 100), 0) }];
+    return [{ id: t.id, date, createdAt: t.createdAt, items, units: items.reduce((n, i) => n + i.quantity, 0), cents: items.reduce((n, i) => n + Math.round(i.subtotal * 100), 0) }];
   }).sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   type Group = { label: string; units: number; cents: number; transactions: number };
   const daily = new Map<string, Group>(), monthly = new Map<string, Group>(), medicines = new Map<string, Group>();

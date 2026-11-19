@@ -65,6 +65,12 @@
 .app-shell .inventory-page .inventory-summary>div { position:relative; gap:7px; padding:23px; border:1px solid #d4e2f4; border-radius:17px; background:linear-gradient(140deg,#fff,#f9fbff); box-shadow:0 6px 20px #194b8c0c; }
 .app-shell .inventory-page .inventory-summary>div>span { color:#7289a4; font-size:12px; padding-right:42px; }
 .app-shell .inventory-page .inventory-summary strong { font-size:25px; font-weight:750; color:#25476e; letter-spacing:-.025em; }
+.app-shell .inventory-page .inventory-summary>div:nth-child(1) { background:linear-gradient(135deg,#e1edff,#f1f6ff); border-color:#c4daf9; }
+.app-shell .inventory-page .inventory-summary>div:nth-child(2) { background:linear-gradient(135deg,#ddf3e9,#effaf5); border-color:#bce2d2; }
+.app-shell .inventory-page .inventory-summary>div:nth-child(3) { background:linear-gradient(135deg,#ffecd5,#fff6e9); border-color:#efd5b5; }
+.app-shell .inventory-page .inventory-summary>div:nth-child(4) { background:linear-gradient(135deg,#ffe5ed,#fff2f6); border-color:#efc8d4; }
+.app-shell .inventory-page .inventory-summary>div:nth-child(2) .inventory-stat-icon { color:#298063; background:#d4efe2; }
+.a11y-contrast .app-shell .inventory-page .inventory-summary>div { background:#fff; border-color:#52657e; }
 .inventory-stat-icon { position:absolute; right:20px; top:23px; display:grid; place-items:center; width:39px; height:39px; border-radius:12px; color:#367bd5; background:#eaf3ff; }
 .inventory-stat-warn { color:#c78a42; background:#fff4e5; }
 .inventory-stat-expiry { color:#ce7184; background:#fff0f3; }

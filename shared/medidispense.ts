@@ -60,6 +60,8 @@ export interface TransactionItem {
 export interface DispenseIssueDetails {
   transaction: Transaction;
   recordedStock: number;
+  deliveryCheck?: {revision:number;outcome:string;verifiedQuantity:number;physicalStock:number|null;notes:string;obligationStatus:string;obligationReference:string;inspectionMode:string;inventoryApplied:boolean}|null;
+  inspection?: {active:boolean;key:string|null;eligible:boolean;blockers:Array<{code:string;message:string}>};
   returnEligibility: { ready: boolean; blockers: Array<{code:string;message:string}>; warnings?:Array<{code:string;message:string}> };
   history: Array<{
     revision: number; adminId: number; createdAt: string; outcome: string;
@@ -80,6 +82,7 @@ export interface Transaction {
   customerHandoffSafe?: boolean;
   customerHandoffMode?: "controlled_demo_assumption" | "unverified";
   customerHandoffBlocker?: string | null;
+  customerHandoffBlockers?: string[];
   /** Present only after persisted backend expiry, never inferred from a zero balance. */
   paymentExpiry?: { confirmed: true; returnAtMs: number } | null;
   /** Advisory only until hardware can inhibit and reconcile buffered coin pulses. */
@@ -98,6 +101,8 @@ export interface Transaction {
   adminRecovered?: boolean;
   /** Persisted physical count audit; recovery alone does not reopen a slot. */
   stockReconciled?: boolean;
+  /** Fresh read-only backend assessment; never inferred from a successful payment. */
+  dispensingRecovery?: {ready:boolean;reviewSaved:boolean;returnRequested:boolean;blockers:{code:string;message:string}[]}|null;
   sensorConfirmedQuantity?: number;
   issueRecovery?: {
     revision: number;

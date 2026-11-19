@@ -16,8 +16,11 @@ interface DispenseRecoveryReadGateway {
     /** Read only: never changes a command or invents hardware state. */
     public function recoveryRetirementState(int $requestId): string;
 }
+interface DispenseInspectionGateway {
+    public function inspectionCommandIdle(): bool;
+}
 
-final class FirebaseRealtimeDatabase implements DispenseCommandGateway, TransactionReferenceGateway, DispenseRecoveryReadGateway
+final class FirebaseRealtimeDatabase implements DispenseCommandGateway, TransactionReferenceGateway, DispenseRecoveryReadGateway, DispenseInspectionGateway
 {
     private string $databaseUrl;
 
@@ -146,6 +149,7 @@ final class FirebaseRealtimeDatabase implements DispenseCommandGateway, Transact
         if(in_array($command['status']??'', ['pending','dispensing'],true))return 'active';
         return in_array($command['status']??'', ['success','failed'],true)?'idle':'unverified';
     }
+    public function inspectionCommandIdle(): bool { return $this->controllerReplacementState()==='idle'; }
     public function recoveryRetirementState(int $requestId): string {
         $current=$this->metadataRequest('GET','/dispense',null,[],3);
         if($current['status']!==200)return 'unverified';

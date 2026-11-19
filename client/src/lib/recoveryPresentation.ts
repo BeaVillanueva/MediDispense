@@ -13,7 +13,7 @@ const blockers:Record<string,string>={
   ACTIVE_DISPENSING_REQUEST:'Another medicine delivery is still waiting or in progress.',
   OTHER_PURCHASE_PENDING:'Another customer purchase is still open.',
   CONTROLLER_UNVERIFIED:'The machine connection could not be verified. Ask a supervisor to check it.',
-  CONTROLLER_DIAGNOSTICS_STALE:'A recent machine update is needed. Check the connection and try again.',
+  CONTROLLER_DIAGNOSTICS_STALE:'A recent machine update is required before reopening. Keep power isolated during inspection.',
   UNRESOLVED_COIN_EVENTS:'Some inserted coins still need checking. Do not start another purchase.',
   INCOMPLETE_COIN_PULSES:'The machine has not finished checking an inserted coin.',
   COIN_STORAGE_UNHEALTHY:'The machine cannot confirm its saved coin records. Ask for assistance.',
@@ -22,9 +22,16 @@ const blockers:Record<string,string>={
   UNKNOWN_PAYMENT_OWNER:'The machine cannot identify which purchase an inserted payment belongs to.',
   ACTIVE_PAYMENT_SESSION:'The machine is still linked to another open purchase.',
   ACTIVE_MOTOR:'A medicine dispenser may still be moving. Confirm that it has stopped.',
+  INVENTORY_MAINTENANCE:'Finish the open medicine stock change before inspecting this delivery.',
 };
 export function recoveryBlockerText(code:string){return blockers[code]??'Another safety check is needed. Ask a supervisor to review the saved details.';}
 export function recoveryErrorText(message:string){
+  if(/finalized outcome|already finalized/i.test(message))return 'This delivery check is already finalized. Select Load saved check to keep its recorded result and customer follow-up.';
+  if(/inspection authorization has expired/i.test(message))return 'The inspection approval has expired. Keep power isolated and ask a supervisor to review the paused check.';
+  if(/inspection pause is missing|no longer matches/i.test(message))return 'The saved inspection pause could not be matched. Keep power isolated and ask a supervisor to check it.';
+  if(/physical count differs|stock.*(?:mismatch|differs)/i.test(message))return 'The physical stock does not match the expected count. Recount and investigate before saving.';
+  if(/inspection.*(?:safe|prepared|state changed)|prepare.*inspection/i.test(message))return 'The hands-on inspection is not confirmed. Check the machine status and isolation first.';
+  if(/count.*(?:match|evidence)/i.test(message))return 'The delivered count conflicts with the recorded evidence. Check the result again.';
   if(/(?:Firebase|command).*(?:active|pending)/i.test(message))return blockers.ACTIVE_FIREBASE_COMMAND;
   if(/(?:network|connection|fetch|timeout)/i.test(message))return 'The connection was interrupted. Check the connection, then try again.';
   return 'The check could not be confirmed. Try checking again or ask a supervisor to review the saved details.';

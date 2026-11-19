@@ -117,6 +117,19 @@ final class AlertService {
             $this->db->commit();return $count;
         }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
     }
+    public function dismiss(int $notification,array $actor): int {
+        if(!in_array($actor['role_code']??'', ['super_admin','admin','staff'],true)) throw new KioskError('FORBIDDEN','Staff access required.',403);
+        if($notification<1) throw new KioskError('INVALID_NOTIFICATION','A notification is required.',422);
+        $this->db->beginTransaction();
+        try {
+            $q=$this->query('INSERT IGNORE INTO notification_dismissals(notification_id,user_id)
+              SELECT n.id,? FROM notifications n LEFT JOIN alert_incidents a ON a.notification_id=n.id LEFT JOIN medicines m ON m.id=a.medicine_id
+              WHERE n.id=? AND '.$this->productionNotificationCondition(),[$actor['id'],$notification]);
+            $count=$q->rowCount();
+            if($count) $this->query("INSERT INTO activity_logs(actor_type,actor_user_id,action,description,metadata) VALUES('user',?,'notification_dismissed','Notification archived for this user only; incident and email state unchanged.',?)",[$actor['id'],json_encode(['notification_id'=>$notification])]);
+            $this->db->commit();return $count;
+        }catch(Throwable $e){if($this->db->inTransaction())$this->db->rollBack();throw $e;}
+    }
     public function manage(int $notification,string $action,array $actor,string $reason=''): void {
         if (!in_array($actor['role_code']??'', ['super_admin','admin','staff'],true)) throw new KioskError('FORBIDDEN','Staff access required.',403);
         if (!$this->query('SELECT id FROM notifications WHERE id=?',[$notification])->fetchColumn()) throw new KioskError('NOT_FOUND','Notification not found.',404);

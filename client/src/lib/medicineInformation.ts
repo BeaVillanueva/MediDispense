@@ -31,6 +31,7 @@ export function canShowUsageGuide(transaction: Pick<Transaction, "paymentStatus"
 }
 
 export function canReturnAfterDispensing(transaction: Transaction | null) {
+  if(transaction?.dispensingRecovery&&!transaction.dispensingRecovery.ready)return false;
   if(transaction?.issueRecovery)return canShowUsageGuide(transaction) && transaction.issueRecovery.returnRequested && transaction.issueRecovery.machineReuseReady && !(transaction.issueRecovery.machineReviewRequired??transaction.issueRecovery.reviewRequired);
   return !!transaction && canShowUsageGuide(transaction) && transaction.customerHandoffSafe === true
     && Math.round(transaction.amountPaid * 100) === Math.round(transaction.total * 100);

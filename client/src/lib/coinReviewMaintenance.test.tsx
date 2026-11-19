@@ -1,0 +1,11 @@
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { beforeEach, expect, it, vi } from 'vitest';
+const h=vi.hoisted(()=>({role:'staff',query:vi.fn(),authorize:vi.fn(),data:{enabled:false,attestation:null,reviews:[]} as any}));
+vi.mock('@/contexts/FirebaseAuthContext',()=>({useFirebaseAuth:()=>({profile:{role_code:h.role}})}));
+vi.mock('@/lib/trpc',()=>({trpc:{coinReviews:{status:{useQuery:()=>{h.query();return {data:h.data,isPending:false,isFetching:false,refetch:vi.fn()};}},authorize:{useMutation:()=>({mutateAsync:h.authorize,isPending:false})}}}}));
+import CoinEventReviewMaintenance from '@/pages/CoinEventReviewMaintenance';
+beforeEach(()=>{h.query.mockClear();h.authorize.mockClear();h.data={enabled:false,attestation:null,reviews:[]};});
+it.each(['staff','admin'])('hides event review data and actions from %s',role=>{h.role=role;const html=renderToStaticMarkup(<CoinEventReviewMaintenance/>);expect(html).toContain('Super Admin access required');expect(h.query).not.toHaveBeenCalled();expect(h.authorize).not.toHaveBeenCalled();});
+it('keeps unconfigured review disabled and performs no live decision on render',()=>{h.role='super_admin';const html=renderToStaticMarkup(<CoinEventReviewMaintenance/>);expect(html).toContain('Review workflow is not enabled');expect(html).not.toContain('Authorize exact event review');expect(h.authorize).not.toHaveBeenCalled();});
+it('requires explicit fields and confirmations even when signed evidence is available',()=>{h.role='super_admin';h.data={enabled:true,attestation:{nonce:'c'.repeat(32),device_id:'2C8C6AF3AF48',age_seconds:0,payload:{event_id:'exact-event',transaction_id:182,pulses:5,amount:5,count:1}},reviews:[]};const html=renderToStaticMarkup(<CoinEventReviewMaintenance/>);expect(html).toContain('Type the full retained event ID');expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Authorize exact event review/);expect(h.authorize).not.toHaveBeenCalled();});

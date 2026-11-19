@@ -23,7 +23,7 @@ export interface RecoveryForm {
 export function recoveryFormErrors(f:RecoveryForm,sensor:number,previous:number,requested:number):string[] {
   const errors:string[]=[];
   if(!f.outcome)errors.push('Choose what happened to the medicine.');
-  if(!f.quantity)errors.push('Enter how many tablets came out.');
+  if(f.quantity==='')errors.push('Enter how many tablets came out.');
   else if(!validPhysicalQuantity(f.outcome,f.quantity,sensor,previous,requested))errors.push('The count must match your choice and include tablets already recorded.');
   if(f.stock&&!/^(?:[0-9]|10)$/.test(f.stock))errors.push('Enter a stock count from 0 to 10.');
   if(f.notes.trim().length<5||f.notes.length>1000)errors.push('Add a short note (5 to 1,000 characters).');
@@ -36,4 +36,18 @@ export function recoveryFormErrors(f:RecoveryForm,sensor:number,previous:number,
 /** Changed facts need saving again; transient confirmations, keys and revisions are excluded. */
 export function recoveryFormSignature(f:RecoveryForm):string {
   return JSON.stringify({outcome:f.outcome,quantity:f.quantity===''?null:Number(f.quantity),stock:f.stock===''?null:Number(f.stock),notes:f.notes.trim(),obligation:f.outcome==='dispensed_sensor_missed'?'delivery_verified':f.obligation,reference:f.outcome!=='dispensed_sensor_missed'&&f.obligation!=='pending'?f.reference.trim():'',complete:f.outcome==='partial'?f.complete:true});
+}
+
+/** Observation is an audit note, not permission to alter inventory or reopen. */
+export function deliveryCheckErrors(f:RecoveryForm,sensor:number,previous:number,requested:number,mode:'external'|'isolated',prepared:boolean,powerIsolated:boolean) {
+  const e:Record<string,string>={};
+  if(!f.outcome)e.outcome='Choose a delivery result.';
+  if(f.quantity==='')e.quantity='Enter the delivered count.';
+  else if(!validPhysicalQuantity(f.outcome,f.quantity,sensor,previous,requested)||(f.outcome==='partial'&&Number(f.quantity)<=0))e.quantity='Use a count matching the result and recorded tablets.';
+  if(!(mode==='external'&&f.stock==='')&&!/^(?:[0-9]|10)$/.test(f.stock))e.stock='Enter the physical count (0–10).';
+  if(f.notes.trim().length<5||f.notes.length>1000)e.notes='Add a short note (5–1,000 characters).';
+  if(f.outcome!=='dispensed_sensor_missed'&&f.obligation!=='pending'&&(f.reference.trim().length<5||f.reference.length>200))e.reference='Enter the real refund or replacement reference.';
+  if(!f.inspected)e.confirmation=mode==='external'?'Confirm safe observation from outside.':'Confirm the physical findings after isolation.';
+  if(mode==='isolated'&&(!prepared||!powerIsolated||!f.stopped||!f.disconnected))e.inspection='Prepare the isolated inspection first.';
+  return e;
 }

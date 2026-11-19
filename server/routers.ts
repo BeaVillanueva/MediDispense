@@ -102,6 +102,10 @@ const previewProcedure = publicProcedure.use(async ({ next }) => {
 });
 
 export const appRouter = router({
+  coinReviews:router({
+    status:permissionProcedure('settings.manage').query(({ctx})=>phpRequest<import('../shared/coinReview').CoinReviewStatus>(ctx,'/api/payments/coin-reviews')),
+    authorize:permissionProcedure('settings.manage').input(z.object({request_key:z.string().regex(/^[a-f0-9]{32}$/),device_id:z.string().regex(/^[A-F0-9]{12}$/),attestation_nonce:z.string().regex(/^[a-f0-9]{32}$/),event_id:z.string().min(1).max(100),original_payment_event_id:z.string().min(1).max(100),verified_total:z.number().int().min(1),notes:z.string().min(20).max(1000),machine_isolated:z.literal(true),motors_stopped:z.literal(true),coin_path_checked:z.literal(true),no_additional_payment_confirmed:z.literal(true)})).mutation(({ctx,input})=>phpRequest<{id:string;authorized:boolean}>(ctx,'/api/payments/coin-reviews/authorize','POST',input)),
+  }),
   system: systemRouter,
   auth: router({
     me: publicProcedure.query(({ ctx }) => ctx.user),
@@ -146,10 +150,10 @@ export const appRouter = router({
   medicines: router({
     options: permissionProcedure("medicines.edit").query(({ ctx }) => phpRequest<{ categories: string[]; slots: { slot_number: number; medicine_id: number | null }[] }>(ctx, "/api/medicine-options")),
     update: permissionProcedure("medicines.edit")
-      .input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(180), category: z.string().trim().min(1), price: z.number().finite().min(0).max(99999999.99), expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), slotNumber: z.number().int().positive().nullable() }))
+      .input(z.object({ id: z.number().int().positive(), name: z.string().trim().min(2).max(180), category: z.string().trim().min(1), price: z.number().finite().min(0).max(99999999.99), expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), slotNumber: z.number().int().min(1).max(3).nullable(), sameProductConfirmed:z.literal(true), genericName:z.string().trim().min(2).max(180), description:z.string().min(2), dosage:z.string().min(2), instructions:z.string().min(2) }))
       .mutation(({ ctx, input }) => {
         if (demoEnabled()) throw new TRPCError({ code: "BAD_REQUEST", message: "Catalog editing requires the PHP database connection." });
-        return phpRequest(ctx, `/api/medicines/${input.id}`, "PATCH", { name: input.name, category_name: input.category, unit_price: input.price, expiry_date: input.expiryDate, slot_number: input.slotNumber });
+        return phpRequest(ctx, `/api/medicines/${input.id}`, "PATCH", { name: input.name, category_name: input.category, unit_price: input.price, expiry_date: input.expiryDate, slot_number: input.slotNumber, same_product_confirmed:input.sameProductConfirmed, generic_name:input.genericName, description:input.description, dosage_information:input.dosage, usage_instructions:input.instructions });
       }),
     archive: permissionProcedure("medicines.archive")
       .input(z.object({ id: z.number().int().positive() }))
@@ -188,12 +192,15 @@ export const appRouter = router({
       }),
   }),
   inventory: router({
+    slots: permissionProcedure("inventory.view").query(({ctx})=>phpRequest<import("../shared/slotInventory").SlotOverview>(ctx,"/api/inventory/slots")),
+    begin: permissionProcedure("medicines.archive").input(z.object({request_key:z.string().regex(/^[a-f0-9]{32}$/),slot_number:z.number().int().min(1).max(3),action:z.enum(["add","remove","replace","restock"])})).mutation(({ctx,input})=>phpRequest<import("../shared/slotInventory").SlotMaintenance>(ctx,"/api/inventory/maintenance/start","POST",input)),
+    complete: permissionProcedure("medicines.archive").input(z.object({request_key:z.string().regex(/^[a-f0-9]{32}$/),machine_powered_off:z.literal(true),motors_stopped:z.literal(true),no_unrecorded_coins:z.literal(true),information_approved:z.literal(true),old_stock_removed:z.boolean(),old_stock_count:z.number().int().min(0).max(10).optional(),new_stock_loaded:z.boolean(),reason:z.string().trim().min(5).max(200),medicine:z.object({name:z.string().min(2).max(180),generic_name:z.string().min(2).max(180),category_name:z.string().min(1),description:z.string().min(2),dosage_information:z.string().min(2),usage_instructions:z.string().min(2),unit_price:z.number().positive(),expiry_date:z.string(),stock_quantity:z.number().int().min(0).max(10),image_url:z.string().max(500)}).optional()})).mutation(({ctx,input})=>phpRequest<import("../shared/slotInventory").SlotMaintenance>(ctx,"/api/inventory/maintenance/complete","POST",input)),
     restock: permissionProcedure("inventory.adjust")
-      .input(z.object({ medicineId: z.number().int().positive(), quantity: z.number().int().positive().max(10) }))
+      .input(z.object({ medicineId: z.number().int().positive(), quantity: z.number().int().positive().max(10), physicallyLoaded:z.literal(true), sameExpiry:z.literal(true), machinePoweredOff:z.literal(true), motorsStopped:z.literal(true), noUnrecordedCoins:z.literal(true), reason:z.string().trim().min(5).max(200), requestKey:z.string().regex(/^[a-f0-9]{32}$/) }))
       .mutation(async ({ ctx, input }) => {
         if (demoEnabled()) { const current = store.getMedicine(input.medicineId); if (!current || current.stockQuantity + input.quantity > 10) throw new TRPCError({ code: "BAD_REQUEST", message: "Stock cannot exceed 10 items." }); return store.adjustStock(input.medicineId, input.quantity, "Restock"); }
         await phpRequest(ctx, "/api/inventory/adjust", "PATCH", {
-          medicine_id: input.medicineId, delta: input.quantity, reason: "Restock", operation: "restock",
+          medicine_id: input.medicineId, delta: input.quantity, reason: input.reason, operation: "restock", physically_loaded:input.physicallyLoaded, same_expiry:input.sameExpiry, machine_powered_off:input.machinePoweredOff, motors_stopped:input.motorsStopped, no_unrecorded_coins:input.noUnrecordedCoins, request_key:input.requestKey,
         });
         return (await phpMedicines(ctx)).find(item => item.id === input.medicineId)!;
       }),
@@ -224,6 +231,9 @@ export const appRouter = router({
     issueDetails: permissionProcedure("inventory.adjust")
       .input(z.object({id:z.number().int().positive()}))
       .query(({ctx,input})=>phpRequest<import("../shared/medidispense").DispenseIssueDetails>(ctx,`/api/transactions/${input.id}/dispensing-issue`)),
+    prepareDeliveryInspection: permissionProcedure("inventory.adjust").input(z.object({id:z.number().int().positive(),transactionCode:z.string(),requestKey:z.string().regex(/^[a-f0-9]{32}$/),machinePowerIsolated:z.literal(true),motorStopped:z.literal(true),controllerDisconnected:z.literal(true)})).mutation(({ctx,input})=>phpRequest<{request_key:string}>(ctx,`/api/transactions/${input.id}/delivery-inspection`,"POST",{transaction_code:input.transactionCode,request_key:input.requestKey,machine_power_isolated:input.machinePowerIsolated,motor_stopped:input.motorStopped,controller_disconnected:input.controllerDisconnected})),
+    saveDeliveryCheck: permissionProcedure("inventory.adjust").input(z.object({id:z.number().int().positive(),transactionCode:z.string(),requestKey:z.string().regex(/^[a-f0-9]{32}$/),expectedRevision:z.number().int().min(0),mode:z.enum(["external","isolated"]),inspectionKey:z.string().nullable(),outcome:z.enum(["not_dispensed","partial","dispensed_sensor_missed"]),quantity:z.number().int().min(0).max(3),stock:z.number().int().min(0).max(10).nullable(),notes:z.string().trim().min(5).max(1000),obligation:z.enum(["pending","delivery_verified","refund_documented","replacement_documented"]),reference:z.string().max(200),observed:z.boolean(),inspected:z.boolean(),powerIsolated:z.boolean(),stopped:z.boolean(),disconnected:z.boolean()})).mutation(({ctx,input})=>phpRequest(ctx,`/api/transactions/${input.id}/delivery-check`,"POST",{transaction_code:input.transactionCode,request_key:input.requestKey,expected_revision:input.expectedRevision,inspection_mode:input.mode,inspection_key:input.inspectionKey,outcome:input.outcome,verified_quantity:input.quantity,physical_stock:input.stock,notes:input.notes,obligation_status:input.obligation,obligation_reference:input.reference,external_observation_confirmed:input.observed,physically_inspected:input.inspected,machine_power_isolated:input.powerIsolated,motor_stopped:input.stopped,controller_disconnected:input.disconnected})),
+    reopenAfterReview: permissionProcedure("inventory.adjust").input(z.object({id:z.number().int().positive(),transactionCode:z.string(),requestKey:z.string().regex(/^[a-f0-9]{32}$/),expectedRevision:z.number().int().min(0),machinePowerIsolated:z.literal(true),motorStopped:z.literal(true),controllerDisconnected:z.literal(true)})).mutation(({ctx,input})=>phpRequest<import("../shared/medidispense").Transaction>(ctx,`/api/transactions/${input.id}/reopen-after-review`,"POST",{transaction_code:input.transactionCode,request_key:input.requestKey,expected_revision:input.expectedRevision,machine_power_isolated:input.machinePowerIsolated,motor_stopped:input.motorStopped,controller_disconnected:input.controllerDisconnected})),
     resolveIssue: permissionProcedure("inventory.adjust")
       .input(z.object({id:z.number().int().positive(),transactionCode:z.string().min(1),requestKey:z.string().regex(/^[a-f0-9]{32}$/),expectedRevision:z.number().int().min(0),outcome:z.enum(["dispensed_sensor_missed","not_dispensed","partial"]),verifiedQuantity:z.number().int().min(0).max(3),physicallyInspected:z.literal(true),motorStopped:z.literal(true),controllerDisconnected:z.literal(true),inspectionComplete:z.boolean(),physicalStock:z.number().int().min(0).max(10).optional(),obligationStatus:z.enum(["pending","delivery_verified","refund_documented","replacement_documented"]),obligationReference:z.string().max(200),notes:z.string().trim().min(5).max(1000),returnToKiosk:z.boolean()}))
       .mutation(({ctx,input})=>phpRequest<import("../shared/medidispense").Transaction>(ctx,`/api/transactions/${input.id}/dispensing-issue`,"POST",{
@@ -295,6 +305,9 @@ export const appRouter = router({
     ),
   }),
   notifications: router({
+    dismiss: permissionProcedure("dashboard.view")
+      .input(z.object({id:z.number().int().positive()}))
+      .mutation(({ctx,input})=>phpRequest<{dismissed:number}>(ctx,`/api/notifications/${input.id}/dismiss`,"POST",{})),
     dismissAll: permissionProcedure("dashboard.view")
       .input(z.object({throughId:z.number().int().positive()}))
       .mutation(({ctx,input})=>phpRequest<{dismissed:number}>(ctx,"/api/notifications/dismiss-all","POST",{through_id:input.throughId})),
@@ -317,7 +330,7 @@ export const appRouter = router({
   reports: router({
     inventory: permissionProcedure("reports.view").query(({ ctx }) => phpRequest<InventoryReportData>(ctx, "/api/reports/inventory")),
     activity: permissionProcedure("reports.export")
-      .input(z.object({ event: z.enum(["generated", "exported"]), report_type: z.enum(["all", "inventory", "transactions", "sales"]), record_count: z.number().int().nonnegative(), start_date: z.string(), end_date: z.string(), status: z.string(), payment: z.string(), medicine: z.string().max(200), search: z.string().max(200) }))
+      .input(z.object({ event: z.enum(["generated", "exported"]), report_type: z.enum(["all", "inventory", "transactions", "sales"]), format: z.enum(["csv", "xlsx", "pdf"]).optional(), record_count: z.number().int().nonnegative(), start_date: z.string(), end_date: z.string(), status: z.string(), payment: z.string(), medicine: z.string().max(200), search: z.string().max(200) }))
       .mutation(({ ctx, input }) => phpRequest(ctx, "/api/reports/activity", "POST", input)),
     basic: permissionProcedure("reports.basic.view").query(async ({ ctx }) => {
       if (!demoEnabled()) {

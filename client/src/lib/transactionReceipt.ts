@@ -9,6 +9,17 @@ export function canViewEReceipt(t:Transaction):boolean {
   if(t.issueRecovery&&(evidence.deliveryVerification!=='admin_physical'||t.issueRecovery.reviewRequired||!t.issueRecovery.inspectionComplete||!t.issueRecovery.stockVerified||t.issueRecovery.obligationStatus!=='delivery_verified'))return false;
   return true;
 }
+/**
+ * The customer tapped Done on a verified e-receipt: exact coin payment, sensor-confirmed delivery,
+ * no admin recovery or dispensing issue. Lets the kiosk return to Choose Medicine even when the
+ * controller handoff diagnostics are stale. UI only; never changes payment, dispensing or stock.
+ */
+export function canReturnAfterReceiptDone(t:Transaction|null):boolean {
+  if(!t||!canViewEReceipt(t))return false;
+  if(t.issueRecovery||t.adminRecovered||t.receipt?.deliveryVerification!=='sensor')return false;
+  if(t.dispensingRecovery&&!t.dispensingRecovery.ready)return false;
+  return true;
+}
 export function receiptUnavailableReason(t:Transaction):string {
   const reasons:Record<string,string>={PAYMENT_NOT_FINALIZED:'Payment is not finalized or requires reconciliation.',PAYMENT_METHOD_UNVERIFIED:'The recorded payment method is not verified.',CURRENCY_UNSUPPORTED:'The payment currency requires review.',ITEM_TOTAL_UNVERIFIED:'Recorded item totals require verification.',DISPENSING_NOT_COMPLETED:'Dispensing has not completed successfully.',DELIVERY_NOT_VERIFIED:'The successfully delivered quantity has not been fully verified.',RECOVERY_NOT_FINALIZED:'Physical recovery or customer fulfillment still requires review.'};
   return (t.receipt?.blockers??[]).map(code=>reasons[code]??'Transaction evidence requires review.').join(' ')||'A successful purchase receipt requires finalized payment and verified delivery.';

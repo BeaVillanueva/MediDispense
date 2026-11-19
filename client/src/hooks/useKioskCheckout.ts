@@ -12,7 +12,8 @@ import { apiBaseUrl, kioskDemo } from "@/lib/apiConfig";
 import { KioskSessionError, readPurchaseSession, persistPurchaseSession, removePurchaseSession } from "@/lib/kioskSession";
 import { logKioskDiagnostic } from "@/lib/kioskDiagnostics";
 import { canReturnAfterDispensing } from "@/lib/medicineInformation";
-import { recoveryConfirmed } from "@/lib/dispensingTimeout";
+import { canReturnAfterReceiptDone } from "@/lib/transactionReceipt";
+import { recoveryConfirmed, dispensingRecoveryMessage } from "@/lib/dispensingTimeout";
 import {
   mayLeavePayment,
   paymentStatus,
@@ -141,24 +142,31 @@ export function useKioskCheckout() {
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [transaction]);
-  const reset = async () => {
+  const reset = async (options?: { receiptDone?: boolean }) => {
     if (locked.current || recovering || error) return false;
     const t = current.current;
     if (!t) {
       return clear();
     }
+    if(t.dispensingStatus==='failed') {
+      if(!session.current||!t.databaseId){setError('Keep this purchase open and ask staff to restore its saved session.');return false;}
+      locked.current=true;setBusy(true);
+      try {
+        const latest=await kioskApi.get(t.databaseId,session.current);
+        if(latest.databaseId!==t.databaseId||latest.id!==t.id){setError('The purchase reference changed unexpectedly. Keep this purchase open and ask staff to check it.');return false;}
+        save(latest);
+        if(!recoveryConfirmed(latest)){setError(dispensingRecoveryMessage(latest));return false;}
+        return clear();
+      }catch{setError('Unable to confirm the machine is ready. Keep this purchase open and press Check Status when connected.');return false;}
+      finally{locked.current=false;setBusy(false);}
+    }
     if(t.issueRecovery && !recoveryConfirmed(t)){setError('Physical recovery or the safe return request is incomplete. The purchase is retained for staff review.');return false;}
-      if(t.dispensingStatus==='dispensed' && !canReturnAfterDispensing(t)) {
+      if(t.dispensingStatus==='dispensed' && !canReturnAfterDispensing(t) && !(options?.receiptDone===true && canReturnAfterReceiptDone(t))) {
         setError('Your medicine was dispensed. The purchase is retained because safe handoff to the next customer has not been confirmed. Please ask staff for assistance.');
-        return false;
-      }
-      if(t.dispensingStatus==='failed' && !t.adminRecovered) {
-        setError('This dispensing issue requires staff recovery. The original payment and purchase session have been retained.');
         return false;
       }
     if (
       t.dispensingStatus === "dispensed" ||
-      t.dispensingStatus === "failed" ||
       t.paymentStatus === "cancelled"
     ) {
       return clear();
@@ -189,7 +197,7 @@ export function useKioskCheckout() {
       canRetrySavedCheckout:false,
       retrySavedCheckout:async()=>{},
       expirePayment:async()=>{},
-      reset: async () => demo.reset(),
+      reset: async (_options?: { receiptDone?: boolean }) => demo.reset(),
     };
   return {
     preview: false,

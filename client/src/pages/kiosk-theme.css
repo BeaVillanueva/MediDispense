@@ -33,9 +33,9 @@
 .kv-shell h2 { font-size: 21px; letter-spacing: -.025em; }
 .kv-header { justify-content: center; padding: 14px 24px 8px; gap: 16px; min-height: 68px; background: transparent; border: 0; margin-top: auto; flex-shrink: 0; }
 .kv-brand { margin: 0; gap: 8px; }
-.kv-brand-icon { width: 40px; height: 40px; color: var(--kv-blue); background: transparent; box-shadow: none; border-radius: 0; }
+.kv-brand-icon { display:grid; place-items:center; flex:0 0 auto; width:44px; height:44px; color:#fff; background:linear-gradient(135deg,#51a8ff,#2058ff); box-shadow:0 5px 14px #246bfe26; border-radius:13px; }
 .kv-brand strong { font-size: 25px; line-height: 1.1; letter-spacing: -.04em; }
-.kv-brand strong span { color: inherit; }
+.kv-brand strong span { color: var(--kv-blue); }
 .kv-brand small { font-size: 11px; color: var(--kv-muted); }
 .kv-preview-label { display: none; }
 .kv-main { width: 100%; max-width: 1120px; padding: 12px 24px 28px; flex: 0 0 auto; }
@@ -369,3 +369,117 @@
   .kv-payment-icon-card .kv-exact-needed, .kv-payment-icon-card .kv-exact-inserted { align-items: center; text-align: center; }
   .kv-payment-icon-card > img { width: 52px; height: 52px; }
 }
+/* Compact quantity card, matching the review panel and shared touch controls. */
+.kv-shell .kv-quantity-screen { max-width:820px; grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr); gap:16px 24px; padding:22px 26px; align-items:center; }
+.kv-quantity-screen .kv-detail-image { height:250px; border-radius:16px; }
+.kv-quantity-screen .kv-detail-image .kv-medicine-art { padding:12px; }
+.kv-shell .kv-quantity-screen h1 { font-size:30px; margin:5px 0 12px; }
+.kv-quantity-screen>div>h2 { font-size:22px; margin:0 0 10px; }
+.kv-quantity-screen .kv-detail-price { margin-top:8px; font-size:30px; }
+.kv-quantity-screen .kv-stock { margin:8px 0 12px; font-size:14px; }
+.kv-quantity-screen .kv-quantity-section { padding:14px 16px; margin:12px 0 0; gap:8px 12px; border-radius:15px; }
+.kv-quantity-screen .kv-quantity-section h2 { font-size:17px; }
+.kv-quantity-screen .kv-quantity-hint { font-size:13px; margin:0; }
+.kv-quantity-screen .kv-quantity button { width:52px; height:52px; }
+.kv-quantity-screen .kv-quantity output { width:44px; font-size:25px; }
+.kv-quantity-screen .kv-selection-total strong { font-size:26px; }
+.kv-quantity-screen .kv-draft-navigation { position:static; padding-top:0; }
+.kv-quantity-screen .kv-draft-navigation .kv-actions { margin:0; }
+@media(max-width:700px) { .kv-shell .kv-quantity-screen { grid-template-columns:1fr; padding:20px; gap:18px; } .kv-quantity-screen .kv-detail-image { height:210px; width:100%; max-width:290px; justify-self:center; } }
+@media(max-width:400px) { .kv-shell .kv-quantity-screen { padding:16px; } .kv-quantity-screen .kv-quantity-section { padding:12px; } .kv-quantity-screen .kv-quantity button { width:48px; height:48px; } .kv-quantity-screen .kv-selection-total strong { font-size:23px; } }
+/* Payment view fits tablet landscape without clipping warnings or session controls. */
+.kv-checkout-view .kv-header { margin-top:0; min-height:56px; padding-top:8px; padding-bottom:4px; }
+.kv-checkout-view .kv-main { padding-top:6px; padding-bottom:12px; }
+.kv-checkout-view .kv-steps { padding-block:8px; margin-bottom:14px; }
+.kv-checkout-view .kv-footer { padding-block:7px; }
+.kv-shell .kv-checkout[data-payment-layout=compact] { padding:18px 26px; }
+.kv-checkout[data-payment-layout=compact] .kv-status-icon.kv-payment-art { width:76px; height:76px; margin:0 auto 4px; }
+.kv-shell .kv-checkout[data-payment-layout=compact] h1 { font-size:30px; margin:4px 0 8px; }
+.kv-shell .kv-checkout[data-payment-layout=compact]>p:not(.kv-reference) { font-size:12px; line-height:1.5; margin:5px auto; max-width:100%; }
+.kv-shell .kv-checkout[data-payment-layout=compact] .kv-exact-instructions { font-size:13px; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-window { margin:10px 0; padding:9px 14px; border-radius:14px; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-window-clock { font-size:13px; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-window-clock strong { font-size:25px; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-window p { font-size:12px; line-height:1.5; }
+.kv-checkout[data-payment-layout=compact] .kv-exact-payment-amounts { margin:10px 0; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-icon-cards { gap:12px; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-icon-card { padding:12px; gap:12px; border-radius:16px; min-height:86px; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-icon-card>img { width:48px; height:48px; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-icon-card span { font-size:13px; }
+.kv-checkout[data-payment-layout=compact] .kv-payment-icon-card strong { font-size:32px; }
+.kv-shell .kv-checkout[data-payment-layout=compact] .kv-reference { margin:8px 0; padding:0; font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+.kv-checkout[data-payment-layout=compact]>.kv-wide { min-height:48px; margin-top:10px; padding:10px 16px; font-size:16px; }
+@media(min-width:700px) and (max-height:700px) {
+  .kv-checkout-view .kv-header { min-height:52px; padding-top:6px; }
+  .kv-checkout-view .kv-steps { margin-bottom:10px; }
+  .kv-shell .kv-checkout[data-payment-layout=compact] { display:grid; grid-template-columns:76px minmax(0,1fr); gap:6px 12px; padding:16px 22px; }
+  .kv-checkout[data-payment-layout=compact]>* { grid-column:1 / -1; }
+  .kv-checkout[data-payment-layout=compact] .kv-status-icon.kv-payment-art { grid-column:1; grid-row:1 / span 2; width:64px; height:64px; align-self:center; margin:0; }
+  .kv-shell .kv-checkout[data-payment-layout=compact]>h1 { grid-column:2; grid-row:1; text-align:left; font-size:27px; margin:0; align-self:end; }
+  .kv-shell .kv-checkout[data-payment-layout=compact]>.kv-exact-instructions { grid-column:2; grid-row:2; text-align:left; margin:0; }
+  .kv-checkout[data-payment-layout=compact] .kv-payment-window { margin:4px 0; padding:7px 12px; }
+  .kv-checkout[data-payment-layout=compact] .kv-exact-payment-amounts { margin:4px 0; width:100%; }
+  .kv-checkout[data-payment-layout=compact] .kv-payment-icon-card { min-height:76px; padding:10px 12px; }
+  .kv-shell .kv-checkout[data-payment-layout=compact] .kv-reference { margin:4px 0; }
+}
+@media(min-width:700px) and (max-height:600px) {
+  .kv-shell .kv-checkout[data-payment-layout=compact] { grid-template-columns:1fr; padding:14px 20px; gap:5px; }
+  .kv-checkout[data-payment-layout=compact] .kv-status-icon.kv-payment-art { display:none; }
+  .kv-shell .kv-checkout[data-payment-layout=compact]>h1,.kv-shell .kv-checkout[data-payment-layout=compact]>.kv-exact-instructions { grid-column:1; grid-row:auto; text-align:center; }
+  .kv-checkout[data-payment-layout=compact] .kv-payment-icon-card strong { font-size:28px; }
+  .kv-checkout[data-payment-layout=compact] .kv-reference strong { display:inline; margin-left:6px; }
+}
+@media(max-width:600px) {
+  .kv-shell .kv-checkout[data-payment-layout=compact] { padding:18px 16px; }
+  .kv-shell .kv-checkout[data-payment-layout=compact] h1 { font-size:26px; }
+  .kv-checkout[data-payment-layout=compact] .kv-payment-icon-card { padding:12px 8px; gap:6px; }
+  .kv-checkout[data-payment-layout=compact] .kv-payment-icon-card strong { font-size:28px; }
+}
+/* Match the Review, Quantity and Payment frames and navigation sizing. */
+.kv-purchase-view .kv-header { margin-top:auto; min-height:56px; padding:8px 24px 4px; }
+.kv-purchase-view .kv-main { padding-top:6px; padding-bottom:12px; }
+.kv-purchase-view .kv-steps { padding-block:8px; margin-bottom:14px; }
+.kv-purchase-view .kv-footer { padding-block:7px; }
+.kv-shell .kv-purchase-review,.kv-shell .kv-quantity-screen,.kv-shell .kv-checkout[data-payment-layout=compact] { width:100%; max-width:820px; margin:8px auto 0; padding:22px 26px; box-sizing:border-box; border-radius:24px; }
+.kv-shell .kv-purchase-review>h1,.kv-shell .kv-quantity-screen h1,.kv-shell .kv-checkout[data-payment-layout=compact]>h1 { font-size:30px; }
+.kv-checkout[data-payment-layout=compact]>.kv-button { min-height:58px; font-size:16px; }
+@media(min-width:700px) and (max-height:700px) {
+  .kv-shell .kv-purchase-review,.kv-shell .kv-quantity-screen,.kv-shell .kv-checkout[data-payment-layout=compact] { padding:16px 22px; }
+  .kv-shell .kv-purchase-review>h1,.kv-shell .kv-quantity-screen h1,.kv-shell .kv-checkout[data-payment-layout=compact]>h1 { font-size:27px; }
+  .kv-checkout[data-payment-layout=compact]>.kv-button,.kv-purchase-view .kv-draft-navigation .kv-actions .kv-button { min-height:48px; }
+}
+@media(min-width:700px) and (max-height:600px) { .kv-shell .kv-purchase-review,.kv-shell .kv-quantity-screen,.kv-shell .kv-checkout[data-payment-layout=compact] { padding:14px 20px; } }
+@media(max-width:700px) { .kv-shell .kv-purchase-review,.kv-shell .kv-quantity-screen,.kv-shell .kv-checkout[data-payment-layout=compact] { padding:20px; } }
+@media(max-width:400px) { .kv-shell .kv-purchase-review,.kv-shell .kv-quantity-screen,.kv-shell .kv-checkout[data-payment-layout=compact] { padding:16px; } }
+/* Dispensing uses the same compact frame as Review, Quantity and Payment. */
+.kv-shell .kv-checkout.kv-state-dispensing { width:100%; max-width:820px; margin:8px auto 0; padding:22px 26px; border-radius:24px; box-sizing:border-box; }
+.kv-state-dispensing .kv-status-icon { width:72px; height:72px; margin:0 auto 10px; border-radius:19px; }
+.kv-state-dispensing .kv-status-icon svg { width:46px; height:46px; }
+.kv-shell .kv-checkout.kv-state-dispensing h1 { font-size:30px; margin:4px 0 8px; }
+.kv-shell .kv-checkout.kv-state-dispensing>p:not(.kv-reference) { font-size:14px; line-height:1.5; margin:6px auto; }
+.kv-state-dispensing .kv-purchase-identity { margin:12px 0; padding:10px 16px; border-radius:14px; }
+.kv-state-dispensing .kv-purchase-identity strong { font-size:17px; }
+.kv-state-dispensing .kv-purchase-identity span { font-size:12px; }
+.kv-state-dispensing .kv-exact-payment-amounts { margin:10px 0; }
+.kv-state-dispensing .kv-payment-icon-cards { gap:12px; }
+.kv-state-dispensing .kv-payment-icon-card { padding:12px; min-height:86px; gap:12px; border-radius:16px; }
+.kv-state-dispensing .kv-payment-icon-card>img { width:48px; height:48px; }
+.kv-state-dispensing .kv-payment-icon-card span { font-size:13px; }
+.kv-state-dispensing .kv-payment-icon-card strong { font-size:32px; }
+.kv-state-dispensing .kv-unit-progress { font-size:20px!important; margin-top:12px!important; }
+.kv-state-dispensing progress { height:10px; margin:12px 0 8px; }
+.kv-state-dispensing div[aria-live=polite]>p { font-size:13px; margin:4px 0; }
+.kv-shell .kv-state-dispensing .kv-reference { margin:8px 0; padding:0; font-size:10px; line-height:1.5; overflow-wrap:anywhere; }
+@media(min-width:700px) and (max-height:700px) {
+  .kv-shell .kv-checkout.kv-state-dispensing { padding:16px 22px; }
+  .kv-shell .kv-checkout.kv-state-dispensing h1 { font-size:27px; }
+  .kv-state-dispensing .kv-status-icon { width:60px; height:60px; margin-bottom:6px; }
+  .kv-state-dispensing .kv-status-icon svg { width:40px; height:40px; }
+  .kv-state-dispensing .kv-purchase-identity { margin:8px 0; }
+  .kv-state-dispensing .kv-payment-icon-card { min-height:76px; padding:10px 12px; }
+  .kv-state-dispensing .kv-exact-payment-amounts { margin:6px 0; }
+  .kv-state-dispensing .kv-reference strong { display:inline; margin-left:6px; }
+}
+@media(min-width:700px) and (max-height:600px) { .kv-shell .kv-checkout.kv-state-dispensing { padding:14px 20px; } .kv-state-dispensing .kv-status-icon { display:none; } }
+@media(max-width:700px) { .kv-shell .kv-checkout.kv-state-dispensing { padding:20px; } }
+@media(max-width:400px) { .kv-shell .kv-checkout.kv-state-dispensing { padding:16px; } .kv-state-dispensing .kv-payment-icon-card { padding:12px 8px; } .kv-state-dispensing .kv-payment-icon-card strong { font-size:28px; } }

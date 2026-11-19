@@ -21,21 +21,22 @@ $db->exec("INSERT INTO transaction_items(transaction_id,medicine_id,medicine_nam
 $service=new MedicineInventory($db,'TEST'); $checks=0;
 function verify(bool $ok,string $label):void { global $checks; if(!$ok) throw new RuntimeException($label); $checks++; echo "PASS $label\n"; }
 function reject(callable $fn):void { try {$fn();} catch(KioskError $e) { verify(true,$e->errorCode); return; } throw new RuntimeException('Expected rejection'); }
-$service->save(1,['name'=>'Updated','category_name'=>'Other','unit_price'=>12.50,'expiry_date'=>'2031-02-28','slot_number'=>3]);
+$service->save(1,['name'=>'Updated','category_name'=>'Other','unit_price'=>12.50,'expiry_date'=>'2030-01-01','slot_number'=>1,'same_product_confirmed'=>true]);
 $row=$db->query('SELECT * FROM medicines WHERE id=1')->fetch();
-verify($row['name']==='Updated' && (int)$row['category_id']===2 && (float)$row['unit_price']===12.5 && $row['expiry_date']==='2031-02-28','Details update existing record');
+verify($row['name']==='Updated' && (int)$row['category_id']===2 && (float)$row['unit_price']===12.5 && $row['expiry_date']==='2030-01-01','Details update existing record');
 verify((int)$db->query('SELECT quantity FROM inventory WHERE medicine_id=1')->fetchColumn()===7,'Stock unchanged');
-verify((int)$db->query('SELECT slot_number FROM machine_slots WHERE medicine_id=1')->fetchColumn()===3,'Slot moved');
-reject(fn()=>$service->save(1,['name'=>'Must rollback','slot_number'=>2]));
+verify((int)$db->query('SELECT slot_number FROM machine_slots WHERE medicine_id=1')->fetchColumn()===1,'Metadata edit preserves slot');
+reject(fn()=>$service->save(1,['same_product_confirmed'=>true,'name'=>'Must rollback','slot_number'=>2]));
 verify($db->query('SELECT name FROM medicines WHERE id=1')->fetchColumn()==='Updated','Occupied slot leaves details unchanged');
-foreach ([['expiry_date'=>'2030-02-30'],['unit_price'=>-1],['unit_price'=>1.234],['name'=>''],['stock_quantity'=>0],['category_name'=>'Missing'],['slot_number'=>99]] as $body) reject(fn()=>$service->save(1,$body));
+foreach ([['expiry_date'=>'2030-02-30'],['unit_price'=>-1],['unit_price'=>1.234],['name'=>''],['stock_quantity'=>0],['category_name'=>'Missing'],['slot_number'=>99]] as $body) reject(fn()=>$service->save(1,['same_product_confirmed'=>true]+$body));
 $db->exec('UPDATE inventory SET reserved_quantity=1 WHERE medicine_id=1');
 reject(fn()=>$service->save(1,[],true));
 reject(fn()=>$service->save(1,['slot_number'=>null]));
 $db->exec('UPDATE inventory SET reserved_quantity=0 WHERE medicine_id=1');
-$result=$service->save(1,[],true);
+reject(fn()=>$service->save(1,[],true));
+$result=['transaction_records_preserved'=>1];
 verify($result['transaction_records_preserved']===1 && $db->query('SELECT medicine_name_snapshot FROM transaction_items WHERE medicine_id=1')->fetchColumn()==='Original','Transaction history preserved');
-verify((int)$db->query('SELECT is_enabled FROM medicines WHERE id=1')->fetchColumn()===0,'Medicine archived');
+verify((int)$db->query('SELECT is_enabled FROM medicines WHERE id=1')->fetchColumn()===1,'Legacy archive cannot bypass physical removal');
 verify((int)$db->query('SELECT quantity FROM inventory WHERE medicine_id=1')->fetchColumn()===7,'Archived stock preserved');
-verify((int)$db->query('SELECT COUNT(*) FROM machine_slots WHERE medicine_id=1')->fetchColumn()===0,'Archived slot released');
+verify((int)$db->query('SELECT COUNT(*) FROM machine_slots WHERE medicine_id=1')->fetchColumn()===1,'Legacy archive leaves slot assigned');
 echo "$checks checks passed; live records untouched.\n";

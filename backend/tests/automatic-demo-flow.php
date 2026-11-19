@@ -51,6 +51,15 @@ $db->exec("UPDATE system_settings SET setting_value=JSON_SET(setting_value,'$.re
 lanCheck(!$demo->snapshot($id)['customerHandoffSafe'],'Completed purchase still waits for fresh post-completion telemetry');
 $diag->record($report);$complete=$demo->snapshot($id);
 lanCheck($complete['customerHandoffSafe'] && $complete['customerHandoffMode']==='controlled_demo_assumption','Fresh clean completion report authorizes only the explicit demo return policy');
+// A previously retired board reporting again must remain a real blocker, even if stale.
+$old=$report;$old['device_id']='112233445566';$old['bound_transaction_id']=0;$diag->record($old);
+$db->exec("INSERT INTO system_settings(setting_key,setting_value) VALUES('coin_retired:1:112233445566','{\"retiredReportAtMs\":0}')");
+$blocked=$demo->snapshot($id);
+lanCheck(!$blocked['customerHandoffSafe']&&$blocked['customerHandoffBlocker']==='MULTIPLE_CONTROLLER_REPORTS'&&$blocked['customerHandoffBlockers']===['MULTIPLE_CONTROLLER_REPORTS'],'Completed purchase exposes the actual revived-controller blocker');
+$db->exec("UPDATE system_settings SET setting_value=JSON_SET(setting_value,'$.reportedAtMs',UNIX_TIMESTAMP(NOW(3))*1000-60000) WHERE setting_key='coin_diag:1:112233445566'");
+lanCheck(!$demo->snapshot($id)['customerHandoffSafe'],'A stale revived registration cannot silently disappear');
+(new CoinPaymentDiagnostics($db,'LAN-TEST',fn()=>'idle'))->retire(['old_device_id'=>'112233445566','new_device_id'=>'AABBCCDDEEFF','old_disconnected'=>true,'no_unrecorded_coins'=>true,'new_physically_verified'=>true],['id'=>1,'role_code'=>'super_admin']);
+lanCheck($demo->snapshot($id)['customerHandoffSafe'],'Explicit verified retirement restores supervised-demo completion handoff');
 lanCheck(!$service->snapshot($id)['customerHandoffSafe'],'Production never treats demo telemetry as physical isolation');
 $bad=$report;$bad['pending_events']=1;$bad['durable_events']=1;$diag->record($bad);
 lanCheck(!$demo->snapshot($id)['customerHandoffSafe'],'Late unconfirmed payment evidence prevents completion handoff');

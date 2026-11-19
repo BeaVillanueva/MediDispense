@@ -1,0 +1,52 @@
+/* Shared report-inspired presentation; no changes to permissions or operations. */
+.inventory-register-actions{display:flex;align-items:center;justify-content:flex-end;gap:14px;flex-wrap:wrap}
+.inventory-register-actions>span{font-size:12px;color:#748ba7}
+.inventory-register-actions>.primary-button{white-space:nowrap}
+@media(max-width:540px){.inventory-register-actions{width:100%;justify-content:space-between}}
+.app-shell .admin-unified.admin-unified{gap:20px}
+.app-shell .admin-unified.admin-unified>.panel,.app-shell .admin-unified.admin-unified .content-grid>.panel{border:1px solid #d5e3f4;border-radius:18px;box-shadow:0 7px 22px #244b790b;overflow:hidden;background:#fff}
+.app-shell .admin-unified.admin-unified .panel-head{padding:20px 22px;gap:14px;background:linear-gradient(100deg,#f5f9ff,#fff);border-bottom:1px solid #e5edf8;flex-wrap:wrap}
+.app-shell .admin-unified.admin-unified .panel-head h2{font-size:17px;font-weight:700;color:#254e7c}
+.app-shell .admin-unified.admin-unified .panel-kicker{font-size:10px;color:#7994b5;letter-spacing:.1em}
+.app-shell .admin-unified.admin-unified>.admin-filter-toolbar{background:linear-gradient(110deg,#f4f8ff,#fff);border:1px solid #d3e2f6;border-radius:16px;padding:18px;gap:10px;box-shadow:0 5px 16px #244b7907}
+.app-shell .admin-unified.admin-unified .table-wrap{overflow-x:auto}
+.app-shell .admin-unified.admin-unified .panel table{width:100%}
+.app-shell .admin-unified.admin-unified .panel th{padding:13px 18px;background:#f3f7fd;color:#5a7595;font-size:11px;letter-spacing:.025em;white-space:nowrap;border-bottom:1px solid #e0eafa}
+.app-shell .admin-unified.admin-unified .panel td{padding:15px 18px;font-size:12px;color:#4e6c8e;vertical-align:middle;border-bottom:1px solid #eaf0f8}
+.app-shell .admin-unified.admin-unified .panel td strong{color:#244b79}
+.app-shell .admin-unified.admin-unified .panel td small{display:block;margin-top:4px;line-height:1.5;color:#7a8da4;font-size:11px}
+.app-shell .admin-unified.admin-unified .panel tbody tr:nth-child(even)>td{background:#f8fbff}
+.app-shell .admin-unified.admin-unified .panel tbody tr:hover>td{background:#eef5ff}
+.app-shell .admin-unified.admin-unified .row-action{min-height:34px;border-radius:9px;border:1px solid #d1e2f9;background:#eff6ff;color:#2b6ac0;padding:7px 10px;font-size:11px;box-shadow:none}
+.app-shell .admin-unified.admin-unified .row-action.text-rose{background:#fff2f5;color:#be4d6d;border-color:#f3d4df}
+.app-shell .admin-unified.admin-unified .primary-button{border-radius:10px;min-height:42px;padding:10px 15px;background:linear-gradient(135deg,#2d7ded,#2165d1);font-size:12px;box-shadow:0 5px 14px #246bfe20}
+.app-shell .admin-unified.admin-unified .primary-button:disabled,.app-shell .admin-unified.admin-unified .row-action:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
+.app-shell .admin-unified.admin-unified .secondary-button{border-radius:10px;min-height:40px;border-color:#d1e1f5;background:#fff;color:#4c6b91}
+.app-shell .admin-unified.admin-unified :is(button,input,select):focus-visible{outline:3px solid #a8ccfb;outline-offset:3px}
+.app-shell .admin-unified.admin-unified .activity-pagination{padding:15px 20px;background:#f7faff;border-top:1px solid #e0eafa;flex-wrap:wrap;gap:12px;color:#6d85a2;font-size:12px}
+.app-shell .admin-unified.admin-unified .activity-pagination-controls{gap:8px;flex-wrap:wrap}
+.app-shell .admin-unified.admin-unified .activity-pagination button{border:1px solid #d4e2f5;border-radius:8px;min-width:34px;min-height:34px;background:#fff;color:#476990;font-size:11px}
+.app-shell .admin-unified.admin-unified .activity-pagination button:disabled{opacity:.45;cursor:not-allowed}
+.app-shell .admin-unified.admin-unified .status-badge{border-radius:20px;padding:6px 10px;font-size:10px;white-space:nowrap}
+.reports-view .sales-highlights[data-count="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}
+.app-shell .admin-unified.admin-unified .chart-area{background:linear-gradient(#fff,#fbfdff);padding-top:20px}
+.app-shell .admin-unified.admin-unified .chart-foot{padding:15px 22px;background:#f8fbff;border-top:1px solid #e4edf8}
+.app-shell .admin-unified.admin-unified .overview-period,.app-shell .admin-unified.admin-unified .ledger-note{border-radius:20px;background:#eaf3ff;color:#4876ad;padding:6px 10px;font-size:11px}
+.app-shell .admin-unified.admin-unified .activity-action-chip{display:inline-flex;border:1px solid #d5e5fa;border-radius:8px;background:#edf5ff;color:#356cae;padding:6px 9px;font-size:11px}
+.app-shell .admin-unified.admin-unified .employee-table .avatar{width:40px;height:40px;border-radius:12px;border:1px solid #d7e5f7}
+.app-shell .admin-unified.admin-unified .employee-table select{border:1px solid #d4e2f5;border-radius:9px;padding:9px 10px;background:#fbfdff;min-height:38px}
+.app-shell .admin-unified.admin-unified .mm-hero{border-radius:18px;border-color:#cbdff7;box-shadow:0 7px 22px #244b790b;background:linear-gradient(115deg,#e6f2ff,#f8fbff,#fff)}
+.app-shell .admin-unified.admin-unified .mm-component{border-radius:18px;border:1px solid #d3e3f8;box-shadow:0 7px 20px #244b7910;padding:22px;min-height:0}
+.app-shell .admin-unified.admin-unified .mm-component:before{display:none}
+.app-shell .admin-unified.admin-unified .mm-component-controller{background:linear-gradient(125deg,#e5efff,#fff)}
+.app-shell .admin-unified.admin-unified .mm-component-dispenser{background:linear-gradient(125deg,#eee7ff,#fff);border-color:#dccbf5}
+.app-shell .admin-unified.admin-unified .mm-component-detection{background:linear-gradient(125deg,#fff0d8,#fff);border-color:#f2d7aa}
+.app-shell .admin-unified.admin-unified .mm-component-payment{background:linear-gradient(125deg,#ddf5ec,#fff);border-color:#b4e4d2}
+.app-shell .admin-unified.admin-unified .hardware-icon{border:0;border-radius:13px;box-shadow:0 3px 9px #193e6b08;background:#ffffffb8;width:42px;height:42px}
+.app-shell .admin-unified.admin-unified .mm-component h3{color:#244b79;font-size:15px;font-weight:700;margin-top:18px}
+.app-shell .admin-unified.admin-unified .mm-component p{font-size:12px;line-height:1.6;color:#637c99}
+.app-shell .admin-unified.admin-unified .mm-stock-card{border-radius:15px;box-shadow:0 5px 16px #244b7907}
+.a11y-contrast .app-shell .admin-unified.admin-unified :is(.panel,.mm-component,.mm-hero,.admin-filter-toolbar){background:#fff;border-color:#52657e}
+@media(max-width:1200px){.reports-view .sales-highlights[data-count="3"]{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:700px){.app-shell .admin-unified.admin-unified{gap:16px}.app-shell .admin-unified.admin-unified .panel-head{padding:17px}.reports-view .sales-highlights[data-count="3"]{grid-template-columns:repeat(2,minmax(0,1fr))}.reports-view .sales-highlights[data-count="3"]>.sales-highlight:last-child{grid-column:1 / -1}}
+@media(max-width:420px){.app-shell .admin-unified.admin-unified .sales-highlights{grid-template-columns:1fr}.reports-view .sales-highlights[data-count="3"]>.sales-highlight:last-child{grid-column:auto}.app-shell .admin-unified.admin-unified .mm-component{padding:18px}}

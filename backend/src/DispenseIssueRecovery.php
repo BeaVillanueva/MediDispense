@@ -16,6 +16,8 @@ trait DispenseIssueRecovery {
         return json_decode($row['metadata'],true,512,JSON_THROW_ON_ERROR)+['createdAt'=>$row['created_at'],'adminId'=>(int)$row['actor_user_id']];
     }
     private function machineIssueReviewPending(?int $excluding=null): bool {
+        $inspection=$this->deliveryInspection();
+        if(($inspection['status']??'')==='active'&&(int)$inspection['transaction_id']!==$excluding)return true;
         $q=$this->db->prepare("SELECT a.metadata FROM activity_logs a JOIN transactions t ON t.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(a.metadata,'$.transaction_id')) AS UNSIGNED) JOIN machines m ON m.id=t.machine_id WHERE a.action='admin_dispense_issue_reviewed' AND m.machine_code=? ORDER BY a.id DESC");
         $q->execute([$this->machineCode]);$seen=[];
         foreach($q->fetchAll() as $r){$v=json_decode($r['metadata'],true);$id=$v['transaction_id'];if($id===$excluding||isset($seen[$id]))continue;$seen[$id]=true;if($this->issueMachinePending($v))return true;}
@@ -25,9 +27,10 @@ trait DispenseIssueRecovery {
         return !$this->issueReturnBlockers($id,$review);
     }
     private function issueReturnBlockers(int $id,?array $review,bool $verifyCommand=false): array {
-        if(!$review)return [['code'=>'REVIEW_NOT_SAVED','message'=>'Save your review first.']];
         $reasons=[];
         $add=static function(string $code,string $message)use(&$reasons):void{$reasons[$code]=['code'=>$code,'message'=>$message];};
+        if(!$review)$add('REVIEW_NOT_SAVED','Save the physical delivery check first. Outside observations do not reopen the machine.');
+        if($review){
         if(!($review['inspectionComplete']??false))$add('INSPECTION_INCOMPLETE','Physical inspection is incomplete.');
         if(!($review['motorStopped']??false)||!($review['controllerDisconnected']??false))$add('CONTROLLER_VERIFICATION_REQUIRED','Motor stop and controller disconnection need verification.');
         if(!($review['stockVerified']??false))$add('INVENTORY_INCOMPLETE','Inventory reconciliation is incomplete. Enter the remaining stock and save.');
@@ -38,6 +41,7 @@ trait DispenseIssueRecovery {
             if($command==='active')$add('ACTIVE_FIREBASE_COMMAND','Another dispensing command is active. Keep the controller disconnected.');
             elseif($command!=='retired')$add('FIREBASE_VERIFICATION_REQUIRED','Dispensing command retirement could not be verified. Check the Firebase connection.');
         }
+        }
         if($this->machineIssueReviewPending($id))$add('OTHER_REVIEW_PENDING','Another dispensing recovery still needs review.');
         $t=$this->transaction($id);$payment=$this->one('SELECT status,amount_inserted FROM payments WHERE transaction_id=?',[$id]);
         if($t['payment_status']!=='successful'||!$payment||$payment['status']!=='successful'||self::cents($t['amount_paid'])!==self::cents($t['total_amount'])||self::cents($payment['amount_inserted'])!==self::cents($t['amount_paid']))$add('PAYMENT_RECONCILIATION_REQUIRED','Recorded payment needs reconciliation.');
@@ -45,6 +49,12 @@ trait DispenseIssueRecovery {
         if($this->one("SELECT t.id FROM transactions t JOIN machines m ON m.id=t.machine_id WHERE m.machine_code=? AND t.id<>? AND t.payment_status='pending' AND t.checkout_key IS NOT NULL LIMIT 1",[$this->machineCode,$id]))$add('OTHER_PURCHASE_PENDING','Another recoverable purchase is waiting for payment.');
         foreach($this->issueControllerBlockers($id) as $reason)$add($reason['code'],$reason['message']);
         return array_values($reasons);
+    }
+    /** Read-only kiosk assessment: only an explicit saved return may unlock a failed purchase. */
+    private function kioskDispensingRecovery(int $id,?array $review):array {
+        $blockers=$this->issueReturnBlockers($id,$review,true);
+        if($review&&!($review['returnRequested']??false))$blockers[]=['code'=>'SAFE_RETURN_NOT_REQUESTED','message'=>'Staff must confirm reopening after saving the physical check.'];
+        return ['ready'=>$review!==null&&($review['returnRequested']??false)&&!$blockers,'reviewSaved'=>$review!==null,'returnRequested'=>(bool)($review['returnRequested']??false),'blockers'=>$blockers];
     }
     private function issueControllerBlockers(int $id): array {
         $reasons=[];$add=static function(string $c,string $m)use(&$reasons){$reasons[]=['code'=>$c,'message'=>$m];};
@@ -81,7 +91,8 @@ trait DispenseIssueRecovery {
         $history=array_map(fn($r)=>json_decode($r['metadata'],true)+['adminId'=>(int)$r['actor_user_id'],'createdAt'=>$r['created_at']],$q->fetchAll());
         $item=$this->item($id);$stock=$this->one('SELECT quantity FROM inventory WHERE medicine_id=?',[$item['medicine_id']]);
         $blockers=$this->issueReturnBlockers($id,$this->issueReview($id),true);
-        return ['transaction'=>$this->snapshot($id),'recordedStock'=>(int)$stock['quantity'],'history'=>$history,'returnEligibility'=>['ready'=>!$blockers,'blockers'=>$blockers,'warnings'=>$this->issueReturnWarnings($id,$this->issueReview($id))]];
+        $inspection=$this->deliveryInspection();$inspectionBlockers=$this->deliveryInspectionBlockers($id,!(($inspection['status']??'')==='active'&&(int)$inspection['transaction_id']===$id));
+        return ['transaction'=>$this->snapshot($id),'recordedStock'=>(int)$stock['quantity'],'history'=>$history,'deliveryCheck'=>$this->latestDeliveryNote($id),'inspection'=>['active'=>($inspection['status']??'')==='active'&&(int)$inspection['transaction_id']===$id,'key'=>($inspection['status']??'')==='active'&&(int)$inspection['transaction_id']===$id?$inspection['request_key']:null,'eligible'=>!$inspectionBlockers,'blockers'=>$inspectionBlockers],'returnEligibility'=>['ready'=>!$blockers,'blockers'=>$blockers,'warnings'=>$this->issueReturnWarnings($id,$this->issueReview($id))]];
     }
     private function requireRecoveryAdmin(array $actor): void {
         if(!in_array($actor['role_code']??'', ['admin','super_admin'],true) || (int)($actor['id']??0)<1)throw new KioskError('FORBIDDEN','Administrator access required.',403);
@@ -106,6 +117,7 @@ trait DispenseIssueRecovery {
             $previous=$this->issueReview($id);
             $retry=$this->one("SELECT metadata FROM activity_logs WHERE action='admin_dispense_issue_reviewed' AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.transaction_id'))=? AND JSON_UNQUOTE(JSON_EXTRACT(metadata,'$.request_key'))=? LIMIT 1",[(string)$id,$key]);
             if($retry){if(json_decode($retry['metadata'],true)['fingerprint']!==$fingerprint)throw new KioskError('EVENT_CONFLICT','This recovery key was already used for another decision.');return $this->snapshot($id);}
+            if(($b['inspection_mode']??'')==='isolated')$this->assertDeliveryInspection($id,$b);
             if($revision!==($previous['revision']??0))throw new KioskError('RECOVERY_STALE','Another review was saved. Reload this case before continuing.');
             if($t['payment_status']!=='successful'||!in_array($t['dispensing_status'],['dispensing','failed'],true) && !$previous)throw new KioskError('RECOVERY_NOT_ALLOWED','Only a paid dispensing issue can be reviewed. Completed historical transactions are unchanged.');
             $payment=$this->one('SELECT * FROM payments WHERE transaction_id=? FOR UPDATE',[$id]);
@@ -155,6 +167,7 @@ trait DispenseIssueRecovery {
             $audit+=['machineReviewRequired'=>$machineReviewRequired,'customerObligationPending'=>$customerObligationPending];
             $this->exec("INSERT INTO activity_logs(actor_type,actor_user_id,action,description,metadata) VALUES('user',?,'admin_dispense_issue_reviewed','Physical dispensing outcome reviewed; payment records unchanged.',?)",[$actor['id'],json_encode($audit,JSON_THROW_ON_ERROR)]);
             if($b['return_to_kiosk']&&($blockers=$this->issueReturnBlockers($id,$audit)))throw new KioskError('OTHER_UNRESOLVED',implode(' ',array_column($blockers,'message')).' Review was not committed; keep the controller disconnected.',409,['returnBlockers'=>$blockers]);
+            if($b['return_to_kiosk'])$this->closeDeliveryInspection($id);
             return $this->snapshot($id);
         },false);
     }

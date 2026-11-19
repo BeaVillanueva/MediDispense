@@ -15,12 +15,18 @@ export function startReceiptIdleTimer(target:EventTarget,onTick:(seconds:number)
 
 export function useKioskReceipt(eligible:boolean,transactionId?:string){
   const stop=useRef<()=>void>(()=>{});
-  const [state,setState]=useState({id:transactionId,open:eligible,seconds:RECEIPT_IDLE_SECONDS,held:false,expired:false});
+  const [requestedFor,setRequestedFor]=useState<string|null>(null);
+  const requested=!!transactionId&&requestedFor===transactionId;
+  const [state,setState]=useState({id:transactionId,open:false,seconds:RECEIPT_IDLE_SECONDS,held:false,expired:false,finished:false});
   useEffect(()=>{
-    if(!eligible){setState(s=>({...s,open:false,expired:false}));return;}
-    setState({id:transactionId,open:true,seconds:RECEIPT_IDLE_SECONDS,held:false,expired:false});
-    stop.current=startReceiptIdleTimer(window,seconds=>setState(s=>s.seconds===seconds?s:{...s,seconds}),()=>setState(s=>({...s,open:false,expired:true})),()=>setState(s=>({...s,held:true})));
+    if(!eligible||!requested){setState(s=>({...s,open:false,expired:false,finished:false}));return;}
+    setState({id:transactionId,open:true,seconds:RECEIPT_IDLE_SECONDS,held:false,expired:false,finished:false});
+    stop.current=startReceiptIdleTimer(window,seconds=>setState(s=>s.seconds===seconds?s:{...s,seconds}),()=>setState(s=>({...s,open:false,expired:true,finished:true})),()=>setState(s=>({...s,held:true})));
     return stop.current;
-  },[eligible,transactionId]);
-  return {...state,open:state.id===transactionId&&state.open,expired:state.id===transactionId&&state.expired,close:()=>{stop.current();setState(s=>({...s,open:false,held:true,expired:false}));},reopen:()=>{stop.current();setState(s=>({...s,open:true,held:true,expired:false}));}};
+  },[eligible,transactionId,requested]);
+  return {...state,requested,open:eligible&&requested&&state.id===transactionId&&state.open,expired:eligible&&requested&&state.id===transactionId&&state.expired,finished:eligible&&requested&&state.id===transactionId&&state.finished,close:()=>{stop.current();setState(s=>({...s,open:false,held:true,expired:false,finished:true}));},show:()=>{
+    if(!eligible||!transactionId)return;
+    if(!requested){setRequestedFor(transactionId);return;}
+    stop.current();setState(s=>({...s,open:true,held:true,expired:false,finished:false}));
+  }};
 }

@@ -121,6 +121,14 @@ $incidentsBefore=$db->query('SELECT * FROM alert_incidents ORDER BY id')->fetchA
 $jobsBefore=$db->query('SELECT * FROM alert_email_jobs ORDER BY id')->fetchAll();
 $notificationCount=(int)$db->query('SELECT COUNT(*) FROM notifications')->fetchColumn();
 $cutoff=(int)$db->query('SELECT MAX(id) FROM notifications')->fetchColumn();
+$single=(int)$normal[0]['id'];
+denied(fn()=>$alerts->dismiss($single,['id'=>2,'role_code'=>'customer']),'FORBIDDEN');
+check($alerts->dismiss($single,$staff)===1,'Single dismissal archives one notification');
+check($alerts->dismiss($single,$staff)===0,'Repeated single dismissal is idempotent');
+check(array_map(fn($n)=>(int)$n['id'],$alerts->notifications(2))===array_values(array_filter(array_map(fn($n)=>(int)$n['id'],$normal),fn($id)=>$id!==$single)),'Other notifications remain visible after single dismissal');
+check($alerts->notifications(1)===$otherBefore,'Single dismissal is isolated to the current user');
+check($incidentsBefore===$db->query('SELECT * FROM alert_incidents ORDER BY id')->fetchAll(),'Single dismissal preserves incident state');
+check($jobsBefore===$db->query('SELECT * FROM alert_email_jobs ORDER BY id')->fetchAll(),'Single dismissal preserves email jobs');
 denied(fn()=>$alerts->dismissAll($cutoff,['id'=>2,'role_code'=>'customer']),'FORBIDDEN');
 $alerts->dismissAll($cutoff,$staff);
 check(count($alerts->notifications(2))===0,'Clear All removes only current user visible notifications and unread count');
