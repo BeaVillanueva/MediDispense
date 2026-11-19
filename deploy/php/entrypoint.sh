@@ -18,12 +18,14 @@ echo "Listen ${PORT}" > /etc/apache2/ports.conf
 # Values are passed through var_export, never interpolated into PHP source.
 php -r '
 $dir = $argv[1];
-$bool = static fn(string $name): bool => in_array(strtolower((string)getenv($name)), ["1","true","yes","on"], true);
+$bool = static fn(string $name): bool => in_array(strtolower(trim((string)getenv($name), " \t\r\n\"")), ["1","true","yes","on"], true);
 $smtp = ["enabled" => $bool("SMTP_ENABLED"), "username" => trim((string)getenv("SMTP_USERNAME")), "password" => trim((string)getenv("SMTP_PASSWORD"))];
 // Optional relay override (Railway Hobby blocks 25/465/587; e.g. a port-2525 relay).
 foreach (["host" => "SMTP_HOST", "encryption" => "SMTP_ENCRYPTION", "from_email" => "SMTP_FROM_EMAIL"] as $key => $name) { $v = trim((string)getenv($name)); if ($v !== "") $smtp[$key] = $v; }
 $port = trim((string)getenv("SMTP_PORT")); if ($port !== "") $smtp["port"] = (int)$port;
 file_put_contents("$dir/smtp.local.php", "<?php\nreturn " . var_export($smtp, true) . ";\n");
+// Non-secret summary for the deploy logs, so a missing or empty value is visible.
+fwrite(STDERR, sprintf("SMTP config: enabled=%s host=%s port=%s username=%s password=%s from=%s\n", $smtp["enabled"] ? "yes" : "NO", $smtp["host"] ?? "(default gmail)", $smtp["port"] ?? "(default 587)", $smtp["username"] !== "" ? "set" : "MISSING", $smtp["password"] !== "" ? "set" : "MISSING", $smtp["from_email"] ?? "(username)"));
 $ids = array_values(array_filter(array_map("intval", preg_split("/[\\s,]+/", (string)getenv("DEMO_PROTECTED_TRANSACTION_IDS"), -1, PREG_SPLIT_NO_EMPTY)), fn(int $id) => $id > 0));
 $demo = [
     "controlled_expiration" => $bool("DEMO_CONTROLLED_EXPIRATION"),
