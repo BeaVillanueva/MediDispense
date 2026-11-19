@@ -1,4 +1,4 @@
-import { ReportHighlights, ReportTools } from "./ReportPresentation";
+import { ReportTools } from "./ReportPresentation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Transaction } from "@shared/medidispense";
 import { DateRangeFilter, RecordPagination, RECORD_PAGE_SIZE } from "./RecordControls";
@@ -6,7 +6,6 @@ import { salesReport } from "@/lib/salesReport";
 import { salesExportBlob, type SalesExportFormat } from "@/lib/salesExport";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { Wallet, ShoppingBag, Pill, ChartNoAxesCombined } from "lucide-react";
 
 const money = (cents: number) => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP" }).format(cents/100);
 export default function SalesReport({ transactions }: { transactions: Transaction[] }) {
@@ -43,7 +42,7 @@ export default function SalesReport({ transactions }: { transactions: Transactio
   if (source.isPending) return <section className="panel"><div className="panel-head" role="status">Loading sales report...</div></section>;
   if (source.isError) return <section className="panel"><div className="panel-head"><p role="alert">{source.error.message}</p><button className="secondary-button" onClick={() => void source.refetch()}>Retry</button></div></section>;
   return <div className="page-stack sales-report-page reports-view">
-    <ReportHighlights items={[{label:"Total sales",value:money(report.cents),hint:"From completed purchases",Icon:Wallet,tone:"green"},{label:"Completed purchases",value:report.records.length,hint:"Paid and medicine delivered",Icon:ShoppingBag,tone:"blue"},{label:"Units sold",value:report.units,hint:"Medicine units delivered",Icon:Pill,tone:"amber"},{label:"Average per purchase",value:money(report.records.length ? report.cents/report.records.length : 0),hint:"Sales divided by completed purchases",Icon:ChartNoAxesCombined,tone:"violet"}]}/>
+    
 
     <ReportTools label="Sales report" format={format} onFormat={setFormat} exporting={exporting} disabled={invalid||exporting||audit.isPending} onExport={()=>void exportReport()} hint="Uses the dates and medicine you select."><DateRangeFilter start={start} end={end} onStart={setStart} onEnd={setEnd}/><select aria-label="Sales medicine" value={product} onChange={e=>setProduct(e.target.value)}><option value="all">All medicines</option>{products.map(([id,name])=><option key={id} value={id}>{name}</option>)}</select><button className="secondary-button" onClick={()=>{setStart("");setEnd("");setProduct("all");}}>Reset filters</button></ReportTools>
     {invalid && <p role="alert">Start date must not be after end date.</p>}
