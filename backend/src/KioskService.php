@@ -28,6 +28,17 @@ final class KioskService {
         private bool $controlledDemoAutoBinding = false,
         private array $protectedTransactionIds = []
     ) {}
+    /** Controller reports shared across one list request; null = always read fresh (live kiosk flows). */
+    private ?array $activeReportsCache = null;
+    private function activeControllerReports(): array {
+        return $this->activeReportsCache ?? (new CoinPaymentDiagnostics($this->db,$this->machineCode))->activeReports();
+    }
+    /** Builds many snapshots (admin lists) reading the controller reports once instead of per transaction. */
+    public function snapshots(array $ids): array {
+        $this->activeReportsCache = (new CoinPaymentDiagnostics($this->db,$this->machineCode))->activeReports();
+        try { return array_map(fn($id)=>$this->snapshot((int)$id), $ids); }
+        finally { $this->activeReportsCache = null; }
+    }
     private function one(string $sql, array $args=[]): ?array { $s=$this->db->prepare($sql); $s->execute($args); return $s->fetch() ?: null; }
     private function exec(string $sql, array $args=[]): void { $this->db->prepare($sql)->execute($args); }
     private function atomic(callable $action, bool $retry = true): mixed {
@@ -411,7 +422,7 @@ final class KioskService {
     public function demoExpirationBlockers(int $id, bool $forExpiration=false): array {
         if(in_array($id,$this->protectedTransactionIds,true))return ['TRANSACTION_REQUIRES_EXPLICIT_STAFF_APPROVAL'];
         // Telemetry is NOT physical inhibition. Only permitted by explicit supervised demo policy.
-        $devices=(new CoinPaymentDiagnostics($this->db,$this->machineCode))->activeReports();
+        $devices=$this->activeControllerReports();
         if(!$devices)return ['CONTROLLER_DIAGNOSTICS_MISSING'];
         if(count($devices)!==1)return ['MULTIPLE_CONTROLLER_REPORTS'];
         $d=$devices[0];
@@ -794,7 +805,7 @@ final class KioskService {
         $handoffBlockers=['COIN_ACCEPTANCE_CONTROL_UNVERIFIED'];
         if($this->controlledDemoExpiration && $this->controlledDemoAutoBinding && $t['payment_status']==='successful' && $t['dispensing_status']==='dispensed' && self::cents($inserted)===self::cents($total) && $r && (int)$r['dispensed_quantity']===(int)$item['quantity']) {
             $handoffBlockers=$this->demoExpirationBlockers($id);
-            $reports=(new CoinPaymentDiagnostics($this->db,$this->machineCode))->activeReports();
+            $reports=$this->activeControllerReports();
             if(!$handoffBlockers&&(count($reports)!==1 || $r['completed_ms']===null || (float)$reports[0]['reportedAtMs']<(float)$r['completed_ms']))$handoffBlockers[]='POST_DISPENSE_DIAGNOSTICS_PENDING';
             $demoHandoff=!$handoffBlockers;
         }

@@ -22,7 +22,8 @@ export async function phpRequest<T>(
   ctx: TrpcContext,
   path: string,
   method = "GET",
-  body?: unknown
+  body?: unknown,
+  timeoutMs = 10000
 ): Promise<T> {
   if (!phpBase())
     throw new TRPCError({
@@ -39,7 +40,7 @@ export async function phpRequest<T>(
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(10000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok)
@@ -59,7 +60,8 @@ export const phpMedicines = (ctx: TrpcContext) =>
 export const phpSummary = (ctx: TrpcContext) =>
   phpRequest<DashboardSummary>(ctx, "/api/dashboard/summary");
 export const phpTransactions = (ctx: TrpcContext) =>
-  phpRequest<Transaction[]>(ctx, "/api/transactions?format=client&all=1");
+  // Builds a full snapshot per purchase, so it needs more than the default 10 s on hosted DBs.
+  phpRequest<Transaction[]>(ctx, "/api/transactions?format=client&all=1", "GET", undefined, 60000);
 export async function phpAlerts(ctx: TrpcContext): Promise<Alert[]> {
   const rows = await phpRequest<any[]>(ctx, "/api/notifications");
   return rows.map(r => ({
