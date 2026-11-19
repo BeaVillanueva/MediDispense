@@ -68,6 +68,12 @@
 .kv-product-price span { font-size: 12px; }
 .kv-shell .kv-stock { margin: 6px 0 16px; color: var(--kv-green); font-size: 13px; }
 .kv-shell .kv-unavailable { color: #8a4a36; }
+/* Sold-out medicines stay listed but read as inactive; the Select button is disabled. */
+.kv-shell .kv-product-unavailable { background: #f3f4f6c9; border-color: #d3d8df; box-shadow: none; }
+.kv-shell .kv-product-unavailable .kv-product-image { filter: grayscale(1); opacity: .55; }
+.kv-shell .kv-product-unavailable h2,
+.kv-shell .kv-product-unavailable .kv-product-price strong { color: #6b7280; }
+.kv-shell .kv-product-unavailable .kv-unavailable { font-weight: 700; }
 .kv-button { min-height: 54px; padding: 12px 22px; border-radius: 100px; font-size: 16px; font-weight: 750; gap: 10px; }
 .kv-primary { background: linear-gradient(#0786ee, #0064d2); color: #fff; box-shadow: 0 5px 12px #006bdc20; border: 1px solid #0071dc; }
 .kv-primary:hover:not(:disabled) { background: var(--kv-blue-dark); }

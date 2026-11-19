@@ -307,7 +307,7 @@ export default function Kiosk() {
                           item.category === activeCategory
                       )
                       .map(medicine => (
-                        <article className="kv-product" key={medicine.id}>
+                        <article className={`kv-product ${purchasable(medicine) ? "" : "kv-product-unavailable"}`} key={medicine.id} aria-disabled={!purchasable(medicine)}>
                           <div className="kv-product-image">
                             <MedicineImage
                               key={medicine.imageUrl}
@@ -327,7 +327,7 @@ export default function Kiosk() {
                             >
                               {purchasable(medicine)
                                 ? medicineStockLabel(medicine)
-                                : medicine.unavailableReason ?? (medicine.stockQuantity < 1 ? "Out of stock" : "Currently unavailable")}
+                                : medicine.unavailableReason ?? (medicine.stockQuantity < 1 ? "Unavailable — out of stock" : "Currently unavailable")}
                             </p>
                             <button
                               className="kv-button kv-primary kv-wide"

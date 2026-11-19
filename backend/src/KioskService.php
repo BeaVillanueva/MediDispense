@@ -79,9 +79,11 @@ final class KioskService {
         foreach($this->db->query($sql)->fetchAll() as $r) {
             $stock=$available ? max(0,(int)$r['quantity']-(int)$r['reserved_quantity']) : (int)$r['quantity'];
             $eligible=$r['is_enabled'] && $r['category_active'] && $r['machine_enabled'] && $r['machine_code']===$this->machineCode && (int)$r['slot_number']>=1 && (int)$r['slot_number']<=3 && in_array($r['slot_status'],['ready','low'],true) && $r['expiry_date']>=$today;
-            // Admin inventory retains all records. New customer selections exclude
-            // unavailable physical stock and unfinished slot changes.
-            if($available && (!$eligible || $stock<1 || $maintenanceOpen)) continue;
+            // Admin inventory retains all records. The kiosk excludes ineligible
+            // medicines and unfinished slot changes, but keeps sold-out medicines
+            // listed as unavailable (not selectable) so customers see the full catalog.
+            // Checkout still revalidates stock independently.
+            if($available && (!$eligible || $maintenanceOpen)) continue;
             $availableStock=max(0,(int)$r['quantity']-(int)$r['reserved_quantity']);
             $status=$r['expiry_date']<$today?'expired':($availableStock===0?'out_of_stock':($r['expiry_date']<=date('Y-m-d',strtotime($today.' +30 days'))?'near_expiry':($availableStock<=(int)$r['minimum_stock_level']?'low_stock':'in_stock')));
             $row=['id'=>(int)$r['id'],'name'=>$r['name'],'genericName'=>$r['generic_name'],'category'=>$r['category_name'],'description'=>$r['description'],'dosage'=>$r['dosage_information'],'instructions'=>$r['usage_instructions'],'stockQuantity'=>$stock,'minimumStockLevel'=>(int)$r['minimum_stock_level'],'price'=>(float)$r['unit_price'],'expiryDate'=>$r['expiry_date'],'imageUrl'=>$r['image_url']??'','slotNumber'=>$r['slot_number']===null?null:(int)$r['slot_number'],'slotId'=>$r['slot_id']===null?null:(int)$r['slot_id'],'status'=>$status,'enabled'=>(bool)$r['is_enabled'],'dateAdded'=>$r['created_at'],'updatedAt'=>$r['updated_at']];
@@ -90,7 +92,7 @@ final class KioskService {
                 $row['machineReady'] = $machineReady && (bool)$r['machine_enabled'];
                 $row['slotReady'] = in_array($r['slot_status'],['ready','low'],true);
                 $row['availableForPurchase'] = $eligible && $stock>0 && $machineReady;
-                $row['unavailableReason'] = !$r['machine_enabled'] ? 'Machine unavailable' : (!$machineReady ? 'Machine awaiting recovery' : (!$row['slotReady'] ? 'Slot awaiting staff check' : ($r['expiry_date']<$today ? 'Expired — unavailable' : ($stock<1 ? 'Out of stock' : null))));
+                $row['unavailableReason'] = !$r['machine_enabled'] ? 'Machine unavailable' : (!$machineReady ? 'Machine awaiting recovery' : (!$row['slotReady'] ? 'Slot awaiting staff check' : ($r['expiry_date']<$today ? 'Expired — unavailable' : ($stock<1 ? 'Unavailable — out of stock' : null))));
             }
             $row['availableStockQuantity']=$availableStock;
             if(!isset($rows[$row['id']])) $rows[$row['id']]=$row;
