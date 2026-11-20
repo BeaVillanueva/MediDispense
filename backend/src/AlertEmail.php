@@ -32,6 +32,10 @@ final class SmtpAlertTransport implements AlertMailTransport {
         try { $mail->send(); }
         catch(Throwable $e) {
             $reply=$smtp->getLastReply();
+            // Diagnostics for the host logs (no credentials): which relay, and why it failed.
+            error_log(sprintf('Alert SMTP failure host=%s port=%d enc=%s from=%s error=%s reply=%s',
+                $this->config['host'],(int)$this->config['port'],$this->config['encryption'],$this->config['from_email'],
+                substr(preg_replace('/\s+/',' ',(string)$mail->ErrorInfo),0,300),substr(preg_replace('/\s+/',' ',(string)$reply),0,200)));
             // A definite rejection (4xx / 5xx) is retryable; disconnect after DATA is ambiguous.
             $rejected=preg_match('/^[45]\d\d[ -]/',$reply)===1;
             throw new AlertMailFailure($smtp->dataStarted && !$rejected);
