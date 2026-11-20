@@ -22,6 +22,8 @@ $config = [
     'hardware' => [
         'api_key' => getenv('HARDWARE_API_KEY') ?: '',
     ],
+    // Optional HTTPS relay (Google Apps Script) for alert emails where SMTP ports are blocked.
+    'alert_mail_relay' => ['url' => trim((string)getenv('ALERT_MAIL_RELAY_URL')), 'secret' => trim((string)getenv('ALERT_MAIL_RELAY_SECRET'))],
     'alerts' => ['timeout_seconds'=>max(10,(int)(getenv('ALERT_DISPENSE_TIMEOUT_SECONDS')?:120))],
 ];
 

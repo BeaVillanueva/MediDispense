@@ -8,7 +8,9 @@ require_once __DIR__.'/../src/AlertEmail.php';
 $config=require __DIR__.'/../config/config.php';
 $watch=in_array('--watch',$argv,true);
 $status=in_array('--status',$argv,true);
-$transport=new SmtpAlertTransport($config['smtp']??[]);
+$relay=new AppsScriptAlertTransport((string)($config['alert_mail_relay']['url']??''),(string)($config['alert_mail_relay']['secret']??''));
+$transport=$relay->configured() ? $relay : new SmtpAlertTransport($config['smtp']??[]);
+if(!$status) fwrite(STDERR,'Alert email transport: '.($relay->configured()?'Google Apps Script relay (HTTPS)':'SMTP')."\n");
 $reportedDisabled=false;
 $db=null;$alerts=null;
 do {

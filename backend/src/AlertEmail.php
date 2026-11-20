@@ -42,6 +42,46 @@ final class SmtpAlertTransport implements AlertMailTransport {
         } finally { $mail->smtpClose(); }
     }
 }
+/**
+ * Sends alert emails from the owner's Gmail through a Google Apps Script web app over
+ * HTTPS (deploy/apps-script/alert-relay.gs). Used where the host blocks outbound SMTP.
+ */
+final class AppsScriptAlertTransport implements AlertMailTransport {
+    /** @var callable(string,string):array{status:int,body:string,error:string,sent:bool} */
+    private $post;
+    public function __construct(private string $url, private string $secret, ?callable $post=null) {
+        $this->url=trim($url); $this->secret=trim($secret);
+        $this->post=$post ?? [self::class,'curlPost'];
+    }
+    public function configured(): bool {
+        return preg_match('#^https://script\.google\.com/macros/s/[A-Za-z0-9_-]{20,}/exec$#D',$this->url)===1 && strlen($this->secret)>=24;
+    }
+    public function send(string $recipient,string $subject,string $html,string $text,string $messageId): void {
+        if (!$this->configured()) throw new RuntimeException('Alert mail relay is not configured.');
+        $payload=json_encode(['secret'=>$this->secret,'to'=>$recipient,'subject'=>$subject,'html'=>$html,'text'=>$text,'messageId'=>$messageId],JSON_THROW_ON_ERROR|JSON_UNESCAPED_UNICODE);
+        $r=($this->post)($this->url,$payload);
+        $reply=json_decode((string)$r['body'],true);
+        if ($r['status']===200 && is_array($reply) && ($reply['ok']??false)===true) return;
+        // Definite non-delivery: never reached Google, an HTTP error, or the script said no.
+        $definite=!$r['sent'] || ($r['status']>=400) || (is_array($reply) && ($reply['ok']??null)===false);
+        error_log(sprintf('Alert relay failure host=script.google.com status=%d error=%s reply=%s',
+            $r['status'],substr((string)$r['error'],0,150),substr(preg_replace('/\s+/',' ',str_replace($this->secret,'[secret]',(string)$r['body'])),0,200)));
+        throw new AlertMailFailure(!$definite);
+    }
+    /** @return array{status:int,body:string,error:string,sent:bool} */
+    public static function curlPost(string $url,string $json): array {
+        $ch=curl_init($url);
+        curl_setopt_array($ch,[CURLOPT_POST=>true,CURLOPT_POSTFIELDS=>$json,CURLOPT_HTTPHEADER=>['Content-Type: application/json'],
+            CURLOPT_RETURNTRANSFER=>true,CURLOPT_FOLLOWLOCATION=>true,CURLOPT_MAXREDIRS=>5,CURLOPT_CONNECTTIMEOUT=>10,CURLOPT_TIMEOUT=>25,
+            CURLOPT_SSL_VERIFYPEER=>true,CURLOPT_SSL_VERIFYHOST=>2]);
+        $body=curl_exec($ch); $errno=curl_errno($ch); $error=curl_error($ch);
+        $status=(int)curl_getinfo($ch,CURLINFO_RESPONSE_CODE);
+        curl_close($ch);
+        // DNS/connect/TLS failures mean the request never reached Google.
+        $neverSent=in_array($errno,[CURLE_COULDNT_RESOLVE_HOST,CURLE_COULDNT_CONNECT,CURLE_SSL_CONNECT_ERROR],true);
+        return ['status'=>$status,'body'=>is_string($body)?$body:'','error'=>$error,'sent'=>!$neverSent];
+    }
+}
 final class AlertEmailTemplate {
     public static function render(array $incident): array {
         $d=json_decode($incident['details'],true,512,JSON_THROW_ON_ERROR);
